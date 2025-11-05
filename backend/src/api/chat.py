@@ -200,27 +200,39 @@ async def _get_or_create_session(
         ChatSession instance
     """
     if session_id:
-        # Retrieve existing session
-        session = (
-            db.query(ChatSession)
-            .filter(
-                ChatSession.session_id == session_id,
-                ChatSession.tenant_id == tenant_id,
-                ChatSession.user_id == user_id,
+        # Validate UUID format
+        try:
+            uuid.UUID(session_id)
+        except (ValueError, AttributeError):
+            logger.warning(
+                "invalid_session_id_format",
+                session_id=session_id,
+                action="creating_new_session_instead",
             )
-            .first()
-        )
+            session_id = None  # Treat invalid UUID as None
 
-        if session:
-            return session
+        if session_id:
+            # Retrieve existing session
+            session = (
+                db.query(ChatSession)
+                .filter(
+                    ChatSession.session_id == session_id,
+                    ChatSession.tenant_id == tenant_id,
+                    ChatSession.user_id == user_id,
+                )
+                .first()
+            )
 
-        logger.warning(
-            "session_not_found",
-            tenant_id=tenant_id,
-            session_id=session_id,
-            user_id=user_id,
-            action="creating_new_session",
-        )
+            if session:
+                return session
+
+            logger.warning(
+                "session_not_found",
+                tenant_id=tenant_id,
+                session_id=session_id,
+                user_id=user_id,
+                action="creating_new_session",
+            )
 
     # Create new session
     new_session_id = str(uuid.uuid4())

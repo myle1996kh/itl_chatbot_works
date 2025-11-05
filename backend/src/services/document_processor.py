@@ -1,10 +1,15 @@
 """Document Processing Service for RAG knowledge base.
 
 This service handles:
-- PDF loading and text extraction
+- PDF loading and text extraction (PyPDFLoader)
+- DOCX loading with section/heading detection (python-docx)
 - Document chunking with overlap
-- Metadata enrichment
+- Metadata enrichment (section tracking, tenant isolation)
 - Integration with LangChain document loaders
+
+Supported formats:
+- .pdf: Page-based extraction
+- .docx/.doc: Paragraph-based with heading/section tracking
 
 """
 from typing import List, Dict, Any, Optional
@@ -22,7 +27,7 @@ class DocumentProcessor:
 
     def __init__(
         self,
-        chunk_size: int = 1000,
+        chunk_size: int = 400,
         chunk_overlap: int = 200,
         separators: Optional[List[str]] = None
     ):
@@ -100,6 +105,128 @@ class DocumentProcessor:
             logger.error(
                 "pdf_load_failed",
                 pdf_path=pdf_path,
+                error=str(e)
+            )
+            raise
+
+    def load_docx(self, docx_path: str) -> List[Document]:
+        """
+        Load DOCX and return LangChain documents with section tracking.
+
+        Pattern from sample_rag.md:
+        - Extract paragraphs and identify headings by style
+        - Track current section while processing
+        - Preserve section_title in metadata
+
+        Args:
+            docx_path: Path to DOCX file
+
+        Returns:
+            List of Document objects with page_content and metadata
+
+        Metadata includes:
+            - source: DOCX file path
+            - file_type: '.docx'
+            - paragraph_index: Paragraph position in document
+            - section_title: Current section heading
+            - section_number: Extracted section number (e.g., "2.3.3")
+            - page: Estimated page number (10 paragraphs per page)
+            - is_heading: Whether this paragraph is a heading
+            - style: Word style name
+        """
+        try:
+            # Validate file exists
+            if not Path(docx_path).exists():
+                raise FileNotFoundError(f"DOCX file not found: {docx_path}")
+
+            logger.info("loading_docx", docx_path=docx_path)
+
+            # Import python-docx
+            try:
+                from docx import Document as DocxDocument
+            except ImportError:
+                raise ImportError(
+                    "python-docx is required for DOCX processing. "
+                    "Install with: pip install python-docx>=1.1.0"
+                )
+
+            # Load DOCX
+            doc = DocxDocument(docx_path)
+
+            # Extract all headings first (sample_rag.md line 55-58)
+            headings = []
+            for para in doc.paragraphs:
+                if para.style.name.startswith("Heading"):
+                    headings.append({
+                        'text': para.text.strip(),
+                        'level': para.style.name,
+                    })
+
+            logger.debug(
+                "docx_headings_extracted",
+                docx_path=docx_path,
+                heading_count=len(headings)
+            )
+
+            # Process paragraphs with stateful section tracking
+            documents = []
+            current_section = None
+            current_section_number = None
+
+            for i, para in enumerate(doc.paragraphs):
+                text = para.text.strip()
+                if not text:
+                    continue
+
+                is_heading = para.style.name.startswith("Heading")
+
+                # Update current section if this is a heading
+                if is_heading:
+                    current_section = text
+                    # Try to extract section number (e.g., "2.3.3" from "2.3.3. Track and Trace")
+                    import re
+                    match = re.match(r'^(\d+(?:\.\d+)*)\.\s+', text)
+                    current_section_number = match.group(1) if match else None
+
+                    logger.debug(
+                        "docx_section_updated",
+                        section_title=current_section,
+                        section_number=current_section_number
+                    )
+
+                # Create document with section metadata
+                # Estimate page number: 10 paragraphs per page (sample_rag.md line 68)
+                estimated_page = i // 10 + 1
+
+                document = Document(
+                    page_content=text,
+                    metadata={
+                        'source': docx_path,
+                        'file_type': '.docx',
+                        'paragraph_index': i,
+                        'section_title': current_section or 'Unknown',
+                        'section_number': current_section_number,
+                        'page': estimated_page,
+                        'is_heading': is_heading,
+                        'style': para.style.name
+                    }
+                )
+                documents.append(document)
+
+            logger.info(
+                "docx_loaded_successfully",
+                docx_path=docx_path,
+                paragraph_count=len(documents),
+                heading_count=len(headings),
+                total_chars=sum(len(doc.page_content) for doc in documents)
+            )
+
+            return documents
+
+        except Exception as e:
+            logger.error(
+                "docx_load_failed",
+                docx_path=docx_path,
                 error=str(e)
             )
             raise
@@ -338,13 +465,101 @@ class DocumentProcessor:
             )
             raise
 
+    def process_document(
+        self,
+        file_path: str,
+        tenant_id: str,
+        additional_metadata: Optional[Dict[str, Any]] = None
+    ) -> List[Document]:
+        """
+        Universal document processing pipeline: Auto-detect format → Load → Chunk → Enrich.
+
+        Supports:
+            - .pdf: Uses PyPDFLoader
+            - .docx/.doc: Uses python-docx with section tracking
+
+        Args:
+            file_path: Path to document file (.pdf, .docx, or .doc)
+            tenant_id: Tenant UUID
+            additional_metadata: Optional metadata to add to all chunks
+
+        Returns:
+            List of processed Document chunks ready for embedding
+
+        Pipeline:
+            1. Detect file format by extension
+            2. Load document (format-specific loader)
+            3. Chunk documents into smaller pieces
+            4. Enrich metadata (tenant_id, timestamp, custom fields)
+
+        Example:
+            >>> processor = get_document_processor()
+            >>> chunks = processor.process_document(
+            ...     file_path="eTMS.docx",
+            ...     tenant_id="tenant-123"
+            ... )
+            >>> # Each chunk has section_title, section_number in metadata
+        """
+        try:
+            file_path_obj = Path(file_path)
+            file_ext = file_path_obj.suffix.lower()
+
+            logger.info(
+                "processing_document_started",
+                file_path=file_path,
+                file_type=file_ext,
+                tenant_id=tenant_id
+            )
+
+            # 1. Load based on format
+            if file_ext == '.pdf':
+                documents = self.load_pdf(file_path)
+            elif file_ext in ['.docx', '.doc']:
+                documents = self.load_docx(file_path)
+            else:
+                raise ValueError(
+                    f"Unsupported file format: {file_ext}. "
+                    f"Supported formats: .pdf, .docx, .doc"
+                )
+
+            # 2. Chunk documents (preserves metadata including section_title)
+            chunks = self.chunk_documents(documents, add_chunk_metadata=True)
+
+            # 3. Enrich metadata with tenant info
+            enriched_chunks = self.enrich_metadata(
+                chunks,
+                tenant_id=tenant_id,
+                additional_metadata=additional_metadata
+            )
+
+            logger.info(
+                "document_processing_completed",
+                file_path=file_path,
+                file_type=file_ext,
+                tenant_id=tenant_id,
+                original_document_count=len(documents),
+                chunk_count=len(enriched_chunks),
+                avg_chars_per_chunk=sum(len(c.page_content) for c in enriched_chunks) / len(enriched_chunks) if enriched_chunks else 0
+            )
+
+            return enriched_chunks
+
+        except Exception as e:
+            logger.error(
+                "document_processing_failed",
+                file_path=file_path,
+                tenant_id=tenant_id,
+                error=str(e)
+            )
+            raise
+
 
 # Singleton instance
 _document_processor: Optional[DocumentProcessor] = None
 
 
 def get_document_processor(
-    chunk_size: int = 1000,
+    chunk_size: int = 400,
     chunk_overlap: int = 200
 ) -> DocumentProcessor:
     """

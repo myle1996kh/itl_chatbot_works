@@ -222,22 +222,30 @@ async def delete_documents(
         )
 
 
-@router.post("/tenants/{tenant_id}/knowledge/upload-pdf", response_model=PDFUploadResponse)
-async def upload_pdf(
+@router.post("/tenants/{tenant_id}/knowledge/upload-document", response_model=PDFUploadResponse)
+async def upload_document(
     tenant_id: str = Path(..., description="Tenant UUID"),
-    file: UploadFile = File(..., description="PDF file to upload"),
+    file: UploadFile = File(..., description="Document file to upload (PDF, DOCX)"),
     document_name: str = Form(None, description="Optional document name"),
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin_role),
 ) -> PDFUploadResponse:
     """
-    Upload and process a PDF file into tenant's knowledge base.
+    Upload and process a document file (PDF or DOCX) into tenant's knowledge base.
 
     This endpoint:
-    1. Validates the PDF file
-    2. Extracts text and splits into chunks (1000 chars, 200 overlap)
-    3. Generates embeddings using all-MiniLM-L6-v2
-    4. Stores in PgVector with multi-tenant isolation
+    1. Validates the document file (supports .pdf, .docx, .doc)
+    2. Extracts text and splits into chunks (400 chars, 200 overlap)
+    3. For DOCX: Tracks section hierarchy and heading structure
+    4. Generates embeddings using all-MiniLM-L6-v2 (384 dimensions)
+    5. Stores in PgVector with multi-tenant isolation
+
+    Metadata for DOCX files includes:
+    - section_title: Current section heading (e.g., "2.3.3. Track and Trace")
+    - section_number: Section number (e.g., "2.3.3")
+    - file_type: '.docx' or '.pdf'
+    - paragraph_index: Position in document
+    - is_heading: Whether the chunk is a heading
 
     Requires admin role in JWT.
     """
@@ -247,18 +255,19 @@ async def upload_pdf(
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant not found")
 
-        # Validate file is PDF
-        if not file.filename.lower().endswith('.pdf'):
+        # Validate file format
+        file_ext = FilePath(file.filename).suffix.lower()
+        if file_ext not in ['.pdf', '.docx', '.doc']:
             raise HTTPException(
                 status_code=400,
-                detail="Only PDF files are supported"
+                detail=f"Unsupported file format: {file_ext}. Supported: .pdf, .docx, .doc"
             )
 
         # Get RAG service
         rag_service = get_rag_service()
 
-        # Save uploaded file to temporary location
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+        # Save uploaded file to temporary location with correct extension
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp_file:
             # Read file content
             content = await file.read()
             tmp_file.write(content)
@@ -273,24 +282,25 @@ async def upload_pdf(
             if document_name:
                 additional_metadata["document_name"] = document_name
 
-            # Process PDF: Load → Chunk → Enrich → Embed → Store
-            ingest_result = rag_service.ingest_pdf(
+            # Process document: Auto-detect format → Load → Chunk → Enrich → Embed → Store
+            ingest_result = rag_service.ingest_document(
                 tenant_id=tenant_id,
-                pdf_path=tmp_file_path,
+                file_path=tmp_file_path,
                 additional_metadata=additional_metadata
             )
 
             if not ingest_result.get("success"):
                 raise HTTPException(
                     status_code=500,
-                    detail=ingest_result.get("error", "Failed to process PDF")
+                    detail=ingest_result.get("error", "Failed to process document")
                 )
 
             logger.info(
-                "pdf_uploaded_by_admin",
+                "document_uploaded_by_admin",
                 admin_user=admin_payload.get("user_id"),
                 tenant_id=tenant_id,
                 filename=file.filename,
+                file_type=file_ext,
                 chunk_count=ingest_result.get("document_count"),
             )
 
@@ -313,12 +323,35 @@ async def upload_pdf(
         raise
     except Exception as e:
         logger.error(
-            "upload_pdf_error",
+            "upload_document_error",
             tenant_id=tenant_id,
             filename=file.filename if file else "unknown",
             error=str(e)
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to upload PDF: {str(e)}"
+            detail=f"Failed to upload document: {str(e)}"
         )
+
+
+@router.post("/tenants/{tenant_id}/knowledge/upload-pdf", response_model=PDFUploadResponse)
+async def upload_pdf(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    file: UploadFile = File(..., description="PDF file to upload"),
+    document_name: str = Form(None, description="Optional document name"),
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> PDFUploadResponse:
+    """
+    Upload and process a PDF file into tenant's knowledge base.
+
+    DEPRECATED: Use /upload-document instead for universal file support (PDF, DOCX).
+    This endpoint is kept for backward compatibility.
+
+    Requires admin role in JWT.
+    """
+    logger.warning(
+        "upload_pdf_deprecated",
+        message="upload_pdf endpoint is deprecated, use upload_document instead"
+    )
+    return await upload_document(tenant_id, file, document_name, db, admin_payload)

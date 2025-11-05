@@ -17,6 +17,7 @@ from src.models.output_format import OutputFormat  # noqa: F401
 from src.models.tool import ToolConfig  # noqa: F401
 from src.models.agent import AgentConfig, AgentTools  # noqa: F401
 from src.models.permissions import TenantAgentPermission, TenantToolPermission  # noqa: F401
+from src.models.tenant_widget_config import TenantWidgetConfig  # noqa: F401
 
 # Configure logging
 configure_logging()

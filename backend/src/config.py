@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # Database Configuration
-    DATABASE_URL: str = Field(default="postgresql://postgres:123456@localhost:5432/chatbot_db")
+    DATABASE_URL: str = Field(default="postgresql://postgres:123456@localhost:5432/chatbot_itl")
     DB_POOL_SIZE: int = Field(default=20)
     DB_MAX_OVERFLOW: int = Field(default=10)
 

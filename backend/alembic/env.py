@@ -33,6 +33,7 @@ from src.models.agent import AgentConfig, AgentTools
 from src.models.permissions import TenantAgentPermission, TenantToolPermission
 from src.models.session import ChatSession
 from src.models.message import Message
+from src.models.tenant_widget_config import TenantWidgetConfig
 
 # Import Base from models
 from src.models.base import Base

@@ -1,7 +1,9 @@
-"""Admin API endpoints for tenant permission management."""
+"""Admin API endpoints for tenant management and permissions."""
 import uuid
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Path
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from src.config import get_db, get_redis
 from src.models.tenant import Tenant
@@ -19,6 +21,354 @@ from src.utils.logging import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin-tenants"])
+
+
+# Request/Response schemas for Tenant CRUD
+class TenantCreateRequest(BaseModel):
+    """Create tenant request."""
+    name: str = Field(..., min_length=1, max_length=255, description="Tenant name")
+    domain: str = Field(..., min_length=1, max_length=255, description="Unique domain")
+    status: str = Field(default="active", description="Tenant status (active/inactive)")
+
+
+class TenantUpdateRequest(BaseModel):
+    """Update tenant request."""
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    domain: Optional[str] = Field(None, min_length=1, max_length=255)
+    status: Optional[str] = Field(None, description="Tenant status (active/inactive)")
+
+
+class TenantResponse(BaseModel):
+    """Tenant response."""
+    tenant_id: str
+    name: str
+    domain: str
+    status: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TenantListResponse(BaseModel):
+    """List tenants response."""
+    total: int
+    tenants: List[TenantResponse]
+
+
+# ============================================================================
+# TENANT CRUD ENDPOINTS
+# ============================================================================
+
+
+@router.post("/tenants", response_model=TenantResponse, status_code=201)
+async def create_tenant(
+    request: TenantCreateRequest,
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> TenantResponse:
+    """
+    Create a new tenant.
+
+    Requires admin role in JWT.
+
+    Args:
+        request: TenantCreateRequest with name, domain, status
+
+    Returns:
+        TenantResponse with newly created tenant details
+    """
+    try:
+        # Check if domain already exists
+        existing = db.query(Tenant).filter(Tenant.domain == request.domain).first()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Domain '{request.domain}' already exists"
+            )
+
+        # Create new tenant
+        tenant_id = str(uuid.uuid4())
+        tenant = Tenant(
+            tenant_id=tenant_id,
+            name=request.name,
+            domain=request.domain,
+            status=request.status,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(tenant)
+        db.commit()
+        db.refresh(tenant)
+
+        logger.info(
+            "tenant_created",
+            admin_user=admin_payload.get("user_id"),
+            tenant_id=tenant_id,
+            domain=request.domain,
+        )
+
+        return TenantResponse(
+            tenant_id=str(tenant.tenant_id),
+            name=tenant.name,
+            domain=tenant.domain,
+            status=tenant.status,
+            created_at=tenant.created_at,
+            updated_at=tenant.updated_at,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "create_tenant_error",
+            admin_user=admin_payload.get("user_id"),
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create tenant: {str(e)}"
+        )
+
+
+@router.get("/tenants", response_model=TenantListResponse)
+async def list_tenants(
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> TenantListResponse:
+    """
+    List all tenants with pagination.
+
+    Requires admin role in JWT.
+
+    Args:
+        limit: Maximum number of results (default: 100)
+        offset: Number of results to skip (default: 0)
+
+    Returns:
+        TenantListResponse with tenant list and total count
+    """
+    try:
+        # Get total count
+        total = db.query(Tenant).count()
+
+        # Get paginated results
+        tenants_data = db.query(Tenant).offset(offset).limit(limit).all()
+
+        tenants = [
+            TenantResponse(
+                tenant_id=str(t.tenant_id),
+                name=t.name,
+                domain=t.domain,
+                status=t.status,
+                created_at=t.created_at,
+                updated_at=t.updated_at,
+            )
+            for t in tenants_data
+        ]
+
+        logger.info(
+            "tenants_listed",
+            admin_user=admin_payload.get("user_id"),
+            total=total,
+            returned=len(tenants),
+        )
+
+        return TenantListResponse(total=total, tenants=tenants)
+
+    except Exception as e:
+        logger.error(
+            "list_tenants_error",
+            admin_user=admin_payload.get("user_id"),
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list tenants: {str(e)}"
+        )
+
+
+@router.get("/tenants/{tenant_id}", response_model=TenantResponse)
+async def get_tenant(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> TenantResponse:
+    """
+    Get tenant details.
+
+    Requires admin role in JWT.
+
+    Args:
+        tenant_id: Tenant UUID
+
+    Returns:
+        TenantResponse with tenant details
+    """
+    try:
+        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        logger.info(
+            "tenant_retrieved",
+            admin_user=admin_payload.get("user_id"),
+            tenant_id=tenant_id,
+        )
+
+        return TenantResponse(
+            tenant_id=str(tenant.tenant_id),
+            name=tenant.name,
+            domain=tenant.domain,
+            status=tenant.status,
+            created_at=tenant.created_at,
+            updated_at=tenant.updated_at,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "get_tenant_error",
+            tenant_id=tenant_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get tenant: {str(e)}"
+        )
+
+
+@router.patch("/tenants/{tenant_id}", response_model=TenantResponse)
+async def update_tenant(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    request: TenantUpdateRequest = ...,
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> TenantResponse:
+    """
+    Update tenant details.
+
+    Requires admin role in JWT.
+
+    Args:
+        tenant_id: Tenant UUID
+        request: TenantUpdateRequest with fields to update
+
+    Returns:
+        TenantResponse with updated tenant details
+    """
+    try:
+        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        # Check if new domain is unique (if changed)
+        if request.domain and request.domain != tenant.domain:
+            existing = db.query(Tenant).filter(
+                Tenant.domain == request.domain,
+                Tenant.tenant_id != tenant_id,
+            ).first()
+            if existing:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Domain '{request.domain}' already exists"
+                )
+
+        # Update fields
+        if request.name is not None:
+            tenant.name = request.name
+        if request.domain is not None:
+            tenant.domain = request.domain
+        if request.status is not None:
+            tenant.status = request.status
+
+        tenant.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(tenant)
+
+        logger.info(
+            "tenant_updated",
+            admin_user=admin_payload.get("user_id"),
+            tenant_id=tenant_id,
+        )
+
+        return TenantResponse(
+            tenant_id=str(tenant.tenant_id),
+            name=tenant.name,
+            domain=tenant.domain,
+            status=tenant.status,
+            created_at=tenant.created_at,
+            updated_at=tenant.updated_at,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "update_tenant_error",
+            tenant_id=tenant_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update tenant: {str(e)}"
+        )
+
+
+@router.delete("/tenants/{tenant_id}", status_code=204)
+async def delete_tenant(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+):
+    """
+    Delete (soft delete - set status to inactive) a tenant.
+
+    Requires admin role in JWT.
+
+    Args:
+        tenant_id: Tenant UUID
+    """
+    try:
+        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        # Soft delete: set status to inactive
+        tenant.status = "inactive"
+        tenant.updated_at = datetime.utcnow()
+        db.commit()
+
+        logger.info(
+            "tenant_deleted",
+            admin_user=admin_payload.get("user_id"),
+            tenant_id=tenant_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "delete_tenant_error",
+            tenant_id=tenant_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete tenant: {str(e)}"
+        )
+
+
+# ============================================================================
+# TENANT PERMISSIONS ENDPOINTS
+# ============================================================================
 
 
 @router.get("/tenants/{tenant_id}/permissions", response_model=TenantPermissionsResponse)

@@ -255,17 +255,38 @@ class RAGService:
         tenant_id: str,
         query: str,
         top_k: int = 5,
+        section_filter: Optional[str] = None,
+        include_section_context: bool = True,
+        expand_to_full_section: bool = False
     ) -> Dict[str, Any]:
         """
-        Query tenant's knowledge base using similarity search.
+        Query tenant's knowledge base using similarity search with optional section filtering.
 
         Args:
             tenant_id: Tenant UUID
             query: Search query
             top_k: Number of results to return
+            section_filter: Optional section title/number filter (e.g., "Track and Trace" or "2.3.3")
+            include_section_context: Whether to format results with section context for LLM
+            expand_to_full_section: If True and top results are from same section, return ALL chunks from that section
 
         Returns:
             Dictionary with query results
+
+        Example:
+            >>> # Strategy A: Top-K only (for specific facts)
+            >>> result = rag_service.query_knowledge_base(
+            ...     tenant_id="...",
+            ...     query="What is container size limit?",
+            ...     top_k=5
+            ... )
+
+            >>> # Strategy B: Full section context (for procedures)
+            >>> result = rag_service.query_knowledge_base(
+            ...     tenant_id="...",
+            ...     query="How to create LCL booking?",
+            ...     expand_to_full_section=True  # Get all chunks if same section
+            ... )
         """
         collection_name = self.get_collection_name(tenant_id)
 
@@ -273,22 +294,119 @@ class RAGService:
             # Get vector store
             vector_store = self._get_vector_store(tenant_id)
 
-            # Query with tenant_id filter for isolation
+            # Build metadata filter
+            metadata_filter = {"tenant_id": str(tenant_id)}
+
+            # Add section filter if provided
+            if section_filter:
+                # Try to match section_title or section_number
+                # This uses JSONB containment in PostgreSQL
+                metadata_filter["section_title"] = {"$like": f"%{section_filter}%"}
+
+                logger.debug(
+                    "query_with_section_filter",
+                    tenant_id=tenant_id,
+                    section_filter=section_filter
+                )
+
+            # Query with filters
             results = vector_store.similarity_search_with_score(
                 query=query,
                 k=top_k,
-                filter={"tenant_id": str(tenant_id)}
+                filter=metadata_filter
             )
 
-            # Format results (results is list of (Document, score) tuples)
+            # Check if we should expand to full section
+            should_expand = False
+            dominant_section = None
+
+            if expand_to_full_section and len(results) >= 2:
+                # Count sections in top results
+                section_counts = {}
+                for doc, _ in results[:3]:  # Check top 3
+                    section = doc.metadata.get('section_title')
+                    if section and section != 'Unknown':
+                        section_counts[section] = section_counts.get(section, 0) + 1
+
+                # If 2+ of top 3 are from same section, expand
+                if section_counts:
+                    dominant_section, count = max(section_counts.items(), key=lambda x: x[1])
+                    if count >= 2:
+                        should_expand = True
+
+                        logger.info(
+                            "expanding_to_full_section",
+                            tenant_id=tenant_id,
+                            section=dominant_section,
+                            original_results=len(results)
+                        )
+
+            # Expand to full section if needed
+            if should_expand and dominant_section:
+                # Query for ALL chunks from this section
+                full_section_results = vector_store.similarity_search_with_score(
+                    query=query,
+                    k=100,  # High limit to get all chunks
+                    filter={
+                        "tenant_id": str(tenant_id),
+                        "section_title": dominant_section
+                    }
+                )
+
+                # Sort by paragraph_index or chunk_index for sequential reading
+                full_section_results = sorted(
+                    full_section_results,
+                    key=lambda x: (
+                        x[0].metadata.get('paragraph_index', 0),
+                        x[0].metadata.get('chunk_index', 0)
+                    )
+                )
+
+                # Use full section instead of top-k
+                results = full_section_results
+
+                logger.info(
+                    "full_section_retrieved",
+                    tenant_id=tenant_id,
+                    section=dominant_section,
+                    chunk_count=len(results)
+                )
+
+            # Format results
             documents = []
             for i, (doc, score) in enumerate(results):
-                documents.append({
+                # Base result structure
+                result_doc = {
                     "content": doc.page_content,
                     "metadata": doc.metadata,
                     "distance": float(score),  # Cosine distance (0 = identical, 2 = opposite)
                     "rank": i + 1,
-                })
+                }
+
+                # Add formatted context for LLM if requested
+                if include_section_context:
+                    section_title = doc.metadata.get('section_title', 'Unknown')
+                    section_number = doc.metadata.get('section_number')
+                    file_type = doc.metadata.get('file_type', 'unknown')
+
+                    # Format section header
+                    if section_number and section_title != 'Unknown':
+                        section_header = f"[Section {section_number}: {section_title}]"
+                    elif section_title != 'Unknown':
+                        section_header = f"[Section: {section_title}]"
+                    else:
+                        section_header = "[Section: Not specified]"
+
+                    # Add formatted content with section context
+                    result_doc["formatted_content"] = f"{section_header}\n\n{doc.page_content}"
+
+                    # Add source info
+                    if 'source' in doc.metadata:
+                        from pathlib import Path
+                        filename = Path(doc.metadata['source']).name
+                        result_doc["source_display"] = f"{filename} ({file_type})"
+
+                documents.append(result_doc)
 
             logger.info(
                 "knowledge_base_queried",
@@ -296,6 +414,8 @@ class RAGService:
                 collection_name=collection_name,
                 query_length=len(query),
                 results_count=len(documents),
+                section_filter=section_filter,
+                include_section_context=include_section_context
             )
 
             return {
@@ -304,6 +424,9 @@ class RAGService:
                 "query": query,
                 "documents": documents,
                 "total_results": len(documents),
+                "section_filter": section_filter,
+                "expanded_to_full_section": should_expand,
+                "expanded_section": dominant_section if should_expand else None
             }
 
         except Exception as e:
@@ -427,38 +550,48 @@ class RAGService:
                 "error": f"Failed to get collection stats: {str(e)}",
             }
 
-    def ingest_pdf(
+    def ingest_document(
         self,
         tenant_id: str,
-        pdf_path: str,
+        file_path: str,
         additional_metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Process and ingest a PDF file into tenant's knowledge base.
+        Process and ingest ANY supported document (PDF, DOCX) into tenant's knowledge base.
+
+        Auto-detects file format and uses appropriate processor.
 
         Args:
             tenant_id: Tenant UUID
-            pdf_path: Path to PDF file
+            file_path: Path to document file (.pdf, .docx, or .doc)
             additional_metadata: Optional metadata to add to all chunks
 
         Returns:
             Dictionary with ingestion results
+
+        Supported formats:
+            - .pdf: Page-based extraction
+            - .docx/.doc: Paragraph-based with section tracking
         """
         try:
+            from pathlib import Path
+            file_ext = Path(file_path).suffix.lower()
+
             logger.info(
-                "pdf_ingestion_started",
+                "document_ingestion_started",
                 tenant_id=tenant_id,
-                pdf_path=pdf_path
+                file_path=file_path,
+                file_type=file_ext
             )
 
-            # Process PDF: Load → Chunk → Enrich
-            chunks = self.doc_processor.process_pdf(
-                pdf_path=pdf_path,
+            # Process document: Load → Chunk → Enrich (with section metadata for DOCX)
+            chunks = self.doc_processor.process_document(
+                file_path=file_path,
                 tenant_id=tenant_id,
                 additional_metadata=additional_metadata
             )
 
-            # Extract texts and metadatas
+            # Extract texts and metadatas (metadata includes section_title, section_number for DOCX)
             documents = [chunk.page_content for chunk in chunks]
             metadatas = [chunk.metadata for chunk in chunks]
 
@@ -471,9 +604,10 @@ class RAGService:
 
             if result["success"]:
                 logger.info(
-                    "pdf_ingestion_completed",
+                    "document_ingestion_completed",
                     tenant_id=tenant_id,
-                    pdf_path=pdf_path,
+                    file_path=file_path,
+                    file_type=file_ext,
                     chunk_count=len(chunks)
                 )
 
@@ -481,15 +615,41 @@ class RAGService:
 
         except Exception as e:
             logger.error(
-                "pdf_ingestion_failed",
+                "document_ingestion_failed",
                 tenant_id=tenant_id,
-                pdf_path=pdf_path,
+                file_path=file_path,
                 error=str(e)
             )
             return {
                 "success": False,
-                "error": f"Failed to ingest PDF: {str(e)}",
+                "error": f"Failed to ingest document: {str(e)}",
             }
+
+    def ingest_pdf(
+        self,
+        tenant_id: str,
+        pdf_path: str,
+        additional_metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Process and ingest a PDF file into tenant's knowledge base.
+
+        DEPRECATED: Use ingest_document() instead for universal file support.
+        This method is kept for backward compatibility.
+
+        Args:
+            tenant_id: Tenant UUID
+            pdf_path: Path to PDF file
+            additional_metadata: Optional metadata to add to all chunks
+
+        Returns:
+            Dictionary with ingestion results
+        """
+        logger.warning(
+            "ingest_pdf_deprecated",
+            message="ingest_pdf() is deprecated, use ingest_document() instead"
+        )
+        return self.ingest_document(tenant_id, pdf_path, additional_metadata)
 
 
 # Singleton instance

@@ -85,6 +85,11 @@ class ToolRegistry:
         )
 
         # Check if this is RAGTool which has different instantiation
+        logger.info(
+            "tool_handler_check",
+            handler_class=base_tool.handler_class,
+            is_rag=base_tool.handler_class == "tools.rag.RAGTool"
+        )
         if base_tool.handler_class == "tools.rag.RAGTool":
             # Use RAGTool's create_langchain_tool method
             structured_tool = handler_class.create_langchain_tool(

@@ -56,6 +56,18 @@ class RAGTool(BaseTool):
             )
             raise
 
+    async def execute(self, **kwargs) -> Dict[str, Any]:
+        """
+        Execute RAG retrieval (async wrapper for LangChain compatibility).
+
+        Args:
+            **kwargs: Tool parameters (query, etc.)
+
+        Returns:
+            Dictionary with retrieved documents and metadata
+        """
+        return self._execute(**kwargs)
+
     def _execute(self, **kwargs) -> Dict[str, Any]:
         """
         Execute RAG retrieval using PgVector similarity search.
@@ -169,10 +181,12 @@ class RAGTool(BaseTool):
 
         InputModel = create_model(f"{name}Input", **fields)
 
-        # Create LangChain tool
+        # Create LangChain tool with async support
+        # Use coroutine parameter for async functions
         return StructuredTool(
             name=name,
             description=description,
-            func=rag_tool.execute,
+            func=lambda **kwargs: rag_tool._execute(**kwargs),  # Sync wrapper
+            coroutine=rag_tool.execute,  # Async function for ainvoke()
             args_schema=InputModel,
         )

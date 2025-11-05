@@ -9,9 +9,9 @@ class ChatRequest(BaseModel):
     """Request schema for chat endpoint."""
 
     message: str = Field(..., min_length=1, max_length=2000, description="User message content")
-    user_id: str = Field(..., description="User identifier (external user ID from auth system)")
-    session_id: Optional[str] = Field(None, description="Existing session UUID as string for follow-up messages")
-    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata (e.g., jwt_token for external API calls)")
+    user_id: str = Field(default="default_user", description="User identifier (external user ID from auth system)")
+    session_id: Optional[str] = Field(default=None, description="Optional: Existing session UUID for follow-up messages. If not provided, a new session will be created automatically.")
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata (e.g., jwt_token for external API calls)")
 
 
 class LLMModelInfo(BaseModel):

@@ -22,6 +22,7 @@ pgvector>=0.3.5
 # Vector Embeddings and RAG
 sentence-transformers>=3.3.0
 pypdf>=5.1.0
+python-docx>=1.1.0
 
 # Caching
 redis>=5.0.0

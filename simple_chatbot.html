@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Chatbot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        
+        .chat-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .chat-header {
+            background: #4a6fa5;
+            color: white;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .chat-messages {
+            height: 400px;
+            overflow-y: auto;
+            padding: 15px;
+            background: #f9f9f9;
+        }
+        
+        .message {
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            border-radius: 18px;
+            max-width: 70%;
+        }
+        
+        .user-message {
+            background: #007bff;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+        
+        .bot-message {
+            background: #e9ecef;
+            color: #333;
+        }
+        
+        .chat-input {
+            display: flex;
+            padding: 15px;
+            background: white;
+            border-top: 1px solid #eee;
+        }
+        
+        .chat-input input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            outline: none;
+        }
+        
+        .chat-input button {
+            margin-left: 10px;
+            padding: 10px 20px;
+            background: #4a6fa5;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+        }
+        
+        .typing-indicator {
+            display: none;
+            padding: 10px;
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h2>Chatbot</h2>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            <div class="message bot-message">
+                Hello! How can I help you today?
+            </div>
+        </div>
+        <div class="typing-indicator" id="typingIndicator">
+            Bot is typing...
+        </div>
+        <div class="chat-input">
+            <input type="text" id="messageInput" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const TENANT_ID = 'f160e26f-c41a-498f-9ab9-b3dbefbdbd50'; // Your provided tenant ID
+        const USER_ID = 'simple-user';
+        let currentSessionId = null;
+
+        // Load session from localStorage on page load
+        function loadSession() {
+            const savedSession = localStorage.getItem('chatbot_session');
+            if (savedSession) {
+                currentSessionId = savedSession;
+            }
+        }
+
+        // Save session to localStorage
+        function saveSession(sessionId) {
+            if (sessionId) {
+                currentSessionId = sessionId;
+                localStorage.setItem('chatbot_session', sessionId);
+            }
+        }
+
+        // Clear session
+        function clearSession() {
+            currentSessionId = null;
+            localStorage.removeItem('chatbot_session');
+        }
+
+        function addMessage(content, isUser = false) {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
+            messageDiv.textContent = content;
+            chatMessages.appendChild(messageDiv);
+            
+            // Scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function showTypingIndicator(show) {
+            const typingIndicator = document.getElementById('typingIndicator');
+            typingIndicator.style.display = show ? 'block' : 'none';
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            // Add user message to UI
+            addMessage(message, true);
+            input.value = '';
+            
+            // Show typing indicator
+            showTypingIndicator(true);
+            
+            try {
+                // Send message to backend
+                const response = await fetch(`${API_URL}/api/${TENANT_ID}/chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        user_id: USER_ID,
+                        session_id: currentSessionId  // Send existing session ID if available
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Raw response data:', data); // Debug log
+                
+                // Check if response contains a new session_id to maintain conversation continuity
+                if (data && typeof data === 'object') {
+                    if (data.session_id) {
+                        saveSession(data.session_id);
+                    } else if (data.metadata && data.metadata.session_id) {
+                        saveSession(data.metadata.session_id);
+                    }
+                }
+                
+                // Hide typing indicator
+                showTypingIndicator(false);
+                
+                // Handle all possible response formats from your backend
+                if (typeof data === 'string') {
+                    // Direct string response
+                    addMessage(data);
+                } else if (data && typeof data === 'object') {
+                    // Try different possible response field names based on your schema
+                    if (data.response !== undefined) {
+                        // Found response field directly
+                        addMessage(data.response);
+                    } else if (data.message !== undefined) {
+                        // Found message field
+                        addMessage(data.message);
+                    } else if (data.content !== undefined) {
+                        // Found content field
+                        addMessage(data.content);
+                    } else if (data.answer !== undefined) {
+                        // Found answer field
+                        addMessage(data.answer);
+                    } else if (data.choices && Array.isArray(data.choices) && data.choices[0]) {
+                        // Handle OpenAI-style response format
+                        if (data.choices[0].message && data.choices[0].message.content) {
+                            addMessage(data.choices[0].message.content);
+                        } else {
+                            addMessage('Response field not found in: ' + JSON.stringify(data, null, 2));
+                        }
+                    } else if (data.detail) {
+                        // Handle error response format
+                        addMessage(data.detail);
+                    } else {
+                        // No recognized response field found
+                        addMessage('Response field not found in: ' + JSON.stringify(data, null, 2));
+                    }
+                } else {
+                    // No response received
+                    addMessage('No response field found or invalid response format.');
+                }
+            } catch (error) {
+                showTypingIndicator(false);
+                console.error('Error details:', error); // More detailed error logging
+                addMessage('Error: ' + error.message);
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // Initialize on load
+        window.onload = function() {
+            loadSession(); // Load any existing session
+            document.getElementById('messageInput').focus();
+        };
+    </script>
+</body>
+</html>

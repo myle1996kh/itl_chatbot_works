@@ -1,0 +1,295 @@
+# ITL_PGVector Database Initialization Configuration
+# This file defines all settings for initializing a fresh database
+
+# Database Configuration
+database:
+  # Override these for different environments
+  # Default: PostgreSQL on localhost:5432
+  url: "postgresql://postgres:123456@localhost:5432/chatbot_itl"
+  # Alternative formats:
+  # url: "postgresql://user:password@host:port/database"
+  pool_size: 20
+  max_overflow: 10
+
+# Demo Tenant Configuration
+demo_tenant:
+  enabled: true  # Set to false to skip demo tenant creation
+
+  tenant_info:
+    name: "eTMS"
+    domain: "etms.agenthub.local"
+    status: "active"
+
+  # LLM Configuration for this tenant
+  llm_config:
+    provider: "openrouter"
+    model_id: "gpt-4o-mini"  # Reference to model created in base seeding
+    api_key: "${OPENROUTER_API_KEY}"  # Will read from environment variable
+
+  # Widget Configuration
+  widget_config:
+    theme: "light"
+    primary_color: "#3B82F6"
+    secondary_color: "#10B981"
+    welcome_message: "Welcome to our Demo Assistant!"
+    placeholder: "Ask me anything about our products..."
+
+  # Agents to enable for this tenant
+  enabled_agents:
+    - "AgentGuidance"    # Agent with RAG tool
+
+  # Tools to enable for this tenant
+  enabled_tools:
+    - "knowledge_base_search"  # RAG tool
+
+
+# RAG Configuration for Demo Tenant
+rag:
+  enabled: true
+
+  # PDF files to ingest for demo tenant
+  # Paths can be relative to backend/ or absolute
+  documents:
+    - path: "setup/eTMS.pdf"
+      name: "eTMS User Guide"
+      description: "eTMS complete user guide with FCL order creation procedures"
+
+  # Chunking configuration
+  chunk_size: 1000
+  chunk_overlap: 200
+
+# Base Data (LLM Models, Tools, Formats, Agents)
+# These are created once and shared across all tenants
+base_data:
+
+  # LLM Models
+  llm_models:
+    - id: "gpt-4o-mini"
+      name: "GPT-4o Mini"
+      provider: "openrouter"
+      base_url: "https://openrouter.ai/api/v1"
+      model_name: "openai/gpt-4o-mini"
+      context_window: 128000
+      is_active: true
+
+    - id: "gpt-4o"
+      name: "GPT-4o"
+      provider: "openrouter"
+      base_url: "https://openrouter.ai/api/v1"
+      model_name: "openai/gpt-4o"
+      context_window: 128000
+      is_active: true
+
+    - id: "claude-3.5-sonnet"
+      name: "Claude 3.5 Sonnet"
+      provider: "openrouter"
+      base_url: "https://openrouter.ai/api/v1"
+      model_name: "anthropic/claude-3.5-sonnet"
+      context_window: 200000
+      is_active: true
+
+    - id: "gemini-1.5-pro"
+      name: "Gemini 1.5 Pro"
+      provider: "openrouter"
+      base_url: "https://openrouter.ai/api/v1"
+      model_name: "google/gemini-1.5-pro"
+      context_window: 1000000
+      is_active: true
+
+    - id: "gpt-4o-mini-openai"
+      name: "GPT-4o Mini (OpenAI)"
+      provider: "openai"
+      base_url: "https://api.openai.com/v1"
+      model_name: "gpt-4o-mini"
+      context_window: 128000
+      is_active: true
+
+  # Base Tools (tool types - templates)
+  base_tools:
+    - id: "http_get"
+      name: "HTTP GET Request"
+      description: "Make HTTP GET requests to external APIs"
+      handler_class: "tools.http.HTTPGetTool"
+      input_schema:
+        type: "object"
+        properties:
+          url:
+            type: "string"
+            description: "URL to fetch"
+          headers:
+            type: "object"
+            description: "Optional HTTP headers"
+        required: ["url"]
+      is_active: true
+
+    - id: "http_post"
+      name: "HTTP POST Request"
+      description: "Make HTTP POST requests to external APIs"
+      handler_class: "tools.http.HTTPPostTool"
+      input_schema:
+        type: "object"
+        properties:
+          url:
+            type: "string"
+            description: "URL to post to"
+          body:
+            type: "object"
+            description: "Request body"
+          headers:
+            type: "object"
+            description: "Optional HTTP headers"
+        required: ["url", "body"]
+      is_active: true
+
+    - id: "rag"
+      name: "RAG Knowledge Base Search"
+      description: "Search tenant's knowledge base using semantic similarity"
+      handler_class: "tools.rag.RAGTool"
+      input_schema:
+        type: "object"
+        properties:
+          query:
+            type: "string"
+            description: "Search query"
+          top_k:
+            type: "integer"
+            description: "Number of results (1-20)"
+            minimum: 1
+            maximum: 20
+        required: ["query"]
+      is_active: true
+
+    - id: "db_query"
+      name: "Database Query"
+      description: "Execute SQL queries on tenant database"
+      handler_class: "tools.db.DBQueryTool"
+      input_schema:
+        type: "object"
+        properties:
+          query:
+            type: "string"
+            description: "SQL query to execute"
+          database:
+            type: "string"
+            description: "Database name"
+        required: ["query"]
+      is_active: false
+
+    - id: "ocr"
+      name: "Optical Character Recognition"
+      description: "Extract text from images using OCR"
+      handler_class: "tools.ocr.OCRTool"
+      input_schema:
+        type: "object"
+        properties:
+          image_url:
+            type: "string"
+            description: "URL or path to image"
+        required: ["image_url"]
+      is_active: false
+
+  # Output Formats
+  output_formats:
+    - id: "json"
+      name: "JSON"
+      description: "Structured JSON format"
+      content_type: "application/json"
+
+    - id: "markdown"
+      name: "Markdown"
+      description: "Formatted markdown text"
+      content_type: "text/markdown"
+
+    - id: "chart"
+      name: "Chart Data"
+      description: "Data formatted for visualization"
+      content_type: "application/json"
+
+    - id: "summary"
+      name: "Summary Text"
+      description: "Concise text summary"
+      content_type: "text/plain"
+
+  # Agent Configurations
+  agents:
+    - id: "agent_guidance"
+      name: "AgentGuidance"
+      description: "eTMS Guidance Assistant - Hỗ trợ người dùng với quy trình và chỉ dẫn"
+      llm_model_id: "gpt-4o-mini"  # Use OpenRouter model
+      handler_class: "agents.guidance.AgentGuidance"
+      prompt_template: |
+        Bạn là một asistant hỗ trợ chuyên về hệ thống eTMS (Freightos Transportation Management System).
+
+        Hướng dẫn người dùng với các quy trình, chỉ dẫn chi tiết dựa trên kiến thức về eTMS từ knowledge base.
+
+        Luôn trích dẫn nguồn từ knowledge base khi cung cấp thông tin.
+
+        Cấu trúc phản hồi theo format sau:
+        1. **Bước / Mục Đích**: Giải thích bước hoặc mục đích
+        2. **Quy Trình**: Liệt kê các bước cụ thể theo thứ tự
+        3. **Lưu Ý Quan Trọng**: Các điểm cần chú ý, hạn chế
+        4. **Ví Dụ Thực Tế** (nếu có): Ví dụ cụ thể giúp hiểu rõ
+        5. **Tham Khảo Thêm**: Các phần liên quan trong tài liệu
+
+        Nếu không có thông tin trong knowledge base, rõ ràng nêu rằng cần kiểm tra thêm từ nguồn khác.
+
+        Luôn sử dụng tiếng Việt. Chuyên nghiệp, rõ ràng, chi tiết và đầy đủ.
+      tools:
+        - "rag"  # This agent uses the RAG tool
+      output_format: "markdown"
+      is_active: true
+
+    - id: "agent_analysis"
+      name: "AgentAnalysis"
+      description: "Performs analysis and data queries"
+      llm_model_id: "gpt-4o-mini"
+      handler_class: "agents.analysis.AgentAnalysis"
+      prompt_template: |
+        You are a data analysis expert.
+
+        When asked to analyze data, use available tools to retrieve data
+        and provide comprehensive analysis.
+
+        Always explain your methodology and provide clear conclusions.
+        Support your findings with specific data points.
+      tools:
+        - "db_query"
+      output_format: "json"
+      is_active: true
+
+    - id: "agent_supervisor"
+      name: "SupervisorAgent"
+      description: "Coordinates multiple agents"
+      llm_model_id: "gpt-4o-mini"
+      handler_class: "agents.supervisor.SupervisorAgent"
+      prompt_template: |
+        You are a supervisor agent that coordinates other specialized agents.
+
+        Understand the user's request and route it to the appropriate agent:
+        - AgentGuidance: For questions requiring knowledge base search
+        - AgentAnalysis: For data analysis requests
+
+        Synthesize results from multiple agents if needed.
+      tools: []
+      output_format: "markdown"
+      is_active: true
+
+# Logging Configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "json"  # json or text
+  output: "console"  # console, file, or both
+
+# Advanced Options
+advanced:
+  # Idempotent mode: skip if data already exists
+  idempotent: true
+
+  # Drop existing data before seeding (dangerous!)
+  force_reset: false
+
+  # Validate setup after completion
+  validate: true
+
+  # Show detailed progress
+  verbose: false

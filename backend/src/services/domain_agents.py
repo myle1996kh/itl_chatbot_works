@@ -338,6 +338,41 @@ For each tool:
                                 agent_name=self.agent_config.name
                             )
                             tool_results[tool_id] = {"error": str(e)}
+
+                # IMPORTANT: If tools were executed, call LLM again with tool results
+                # to generate the final response
+                if tool_results:
+                    from langchain_core.messages import ToolMessage
+
+                    # Add the assistant's tool call message to conversation
+                    messages.append(response)
+
+                    # Add tool results as ToolMessages
+                    for tool_id, tool_result in tool_results.items():
+                        # Convert tool result to string for ToolMessage
+                        if isinstance(tool_result, dict):
+                            tool_result_str = json.dumps(tool_result, ensure_ascii=False)
+                        else:
+                            tool_result_str = str(tool_result)
+
+                        messages.append(ToolMessage(
+                            content=tool_result_str,
+                            tool_call_id=tool_id
+                        ))
+
+                    # Invoke LLM again with tool results to get final response
+                    logger.info(
+                        "invoking_llm_with_tool_results",
+                        agent_name=self.agent_config.name,
+                        tool_count=len(tool_results)
+                    )
+                    response = await llm_with_tools.ainvoke(messages)
+
+                    logger.info(
+                        "final_response_generated",
+                        agent_name=self.agent_config.name,
+                        response_length=len(response.content)
+                    )
             else:
                 # No tools available, just invoke LLM with conversation history
                 messages = [SystemMessage(content=self.agent_config.prompt_template)]
