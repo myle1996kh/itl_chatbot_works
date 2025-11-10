@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 def test_rag_query():
     """Test RAG retrieval with the given query and tenant_id."""
     query = "'Tạo giá vốn tuyến đường'"
-    tenant_id = "f160e26f-c41a-498f-9ab9-b3dbefbdbd50"
+    tenant_id = "1193a40f-1d03-4ecd-a601-901a55589f56"
     
     print(f"Query: {query}")
     print(f"Tenant ID: {tenant_id}")

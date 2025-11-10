@@ -1,0 +1,24 @@
+meta {
+  name: Test Chat Endpoint
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/:tenant_id/test/chat
+  body: json
+  auth: none
+}
+
+params:path {
+  tenant_id: 
+}
+
+body:json {
+  {
+    "message": "",
+    "user_id": "",
+    "session_id": "",
+    "metadata": ""
+  }
+}

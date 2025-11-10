@@ -1,0 +1,13 @@
+installation:
+  version: 6.0.0-alpha.7
+  installDate: '2025-11-10T01:52:36.395Z'
+  lastUpdated: '2025-11-10T01:52:36.395Z'
+modules:
+  - core
+  - bmb
+  - bmm
+ides:
+  - claude-code
+  - codex
+  - gemini
+  - qwen

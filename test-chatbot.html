@@ -13,7 +13,7 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #f4f5f7;
             height: 100vh;
             display: flex;
             justify-content: center;
@@ -23,7 +23,7 @@
 
         .demo-container {
             text-align: center;
-            color: white;
+            color: black;
         }
 
         .demo-container h1 {
@@ -44,7 +44,7 @@
             width: 60px;
             height: 60px;
             border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #5a5fa8;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
             cursor: pointer;
             display: flex;
@@ -99,7 +99,7 @@
 
         /* Chat Header */
         .chat-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #5a5fa8;
             color: white;
             padding: 20px;
             display: flex;
@@ -167,7 +167,7 @@
         }
 
         .message.user .message-content {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #5a5fa8;
             color: white;
             border-bottom-right-radius: 5px;
         }
@@ -245,11 +245,11 @@
         }
 
         .chat-input input:focus {
-            border-color: #667eea;
+            border-color: #5a5fa8;
         }
 
         .send-button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #5a5fa8;
             color: white;
             border: none;
             width: 45px;
@@ -312,7 +312,7 @@
         }
 
         .config-button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #5a5fa8;
             color: white;
             border: none;
             padding: 12px 30px;
@@ -397,11 +397,7 @@
         <!-- Chat Messages -->
         <div class="chat-messages" id="chatMessages">
             <div class="message bot">
-                <div class="message-content">
-                    Xin chào! Tôi là trợ lý eTMS. 👋<br><br>
-                    Tôi có thể giúp bạn tìm kiếm thông tin trong Hướng dẫn sử dụng eTMS.<br><br>
-                    Hãy hỏi tôi về các tính năng, quy trình hoặc hướng dẫn vận hành hệ thống!
-                </div>
+                <div class="message-content">Xin chào! Tôi là trợ lý eTMS. 👋<br><br>Tôi có thể giúp bạn tìm kiếm thông tin trong Hướng dẫn sử dụng eTMS.<br><br>Hãy hỏi tôi về các tính năng, quy trình hoặc hướng dẫn vận hành hệ thống!</div>
                 <div class="message-time">Bây giờ</div>
             </div>
             <div class="typing-indicator" id="typingIndicator">
@@ -553,8 +549,41 @@
                 setTyping(false);
 
                 // Add bot response
-                if (data && data.response) {
-                    addMessage(data.response, false);
+                if (data && (data.response || data.content)) {
+                    let responseData = data.response || data.content;
+
+                    // Try to parse if it's a string that looks like JSON
+                    if (typeof responseData === 'string') {
+                        try {
+                            // The backend might be sending a stringified JSON with single quotes, which is invalid JSON.
+                            // Let's replace single quotes with double quotes to make it parseable.
+                            const fixedJsonString = responseData.replace(/'/g, '"');
+                            const parsedData = JSON.parse(fixedJsonString);
+
+                            // If parsing succeeds, we have an object.
+                            responseData = parsedData;
+                        } catch (e) {
+                            // Parsing failed, so it's probably just a plain string.
+                            // Keep responseData as is.
+                        }
+                    }
+
+                    if (typeof responseData === 'object' && responseData !== null) {
+                        // We have an object, either from the start or after parsing.
+                        let message = responseData.message || responseData.response || 'No message content.';
+                        message = message.replace(/\*\*/g, ''); // Remove markdown bolding
+                        let metadata = responseData.metadata;
+
+                        let displayContent = message;
+                        if (metadata) {
+                            displayContent += `<br><br><strong>Metadata:</strong><pre>${JSON.stringify(metadata, null, 2)}</pre>`;
+                        }
+                        addMessage(displayContent, false);
+                    } else {
+                        // It's just a plain string.
+                        responseData = responseData.replace(/\*\*/g, ''); // Remove markdown bolding
+                        addMessage(responseData, false);
+                    }
                 } else {
                     addMessage('⚠️ Server returned empty response.', false);
                 }

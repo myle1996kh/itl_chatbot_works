@@ -1,3 +1,4 @@
+
 # AgentHub Chatbot Constitution
 
 ## Core Principles

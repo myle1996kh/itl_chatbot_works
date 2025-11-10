@@ -27,7 +27,7 @@ class DocumentProcessor:
 
     def __init__(
         self,
-        chunk_size: int = 400,
+        chunk_size: int = 600,
         chunk_overlap: int = 200,
         separators: Optional[List[str]] = None
     ):
@@ -35,7 +35,7 @@ class DocumentProcessor:
         Initialize document processor.
 
         Args:
-            chunk_size: Maximum characters per chunk (default: 1000)
+            chunk_size: Maximum characters per chunk (default: 600)
             chunk_overlap: Character overlap between chunks (default: 200)
             separators: Custom split separators (default: paragraph/sentence/word)
         """
@@ -559,7 +559,7 @@ _document_processor: Optional[DocumentProcessor] = None
 
 
 def get_document_processor(
-    chunk_size: int = 400,
+    chunk_size: int = 600,
     chunk_overlap: int = 200
 ) -> DocumentProcessor:
     """

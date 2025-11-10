@@ -1,0 +1,24 @@
+meta {
+  name: Upload Document
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/knowledge/upload-document
+  body: multipartForm
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:multipart-form {
+  file: 
+  document_name: 
+}

@@ -241,7 +241,7 @@ NO explanations, NO additional text."""
             },
             "unclear": {
                 "en": "I'm sorry, I can only help with topics related to our system — such as checking customer debt, tracking shipments, analyzing data, or searching the knowledge base. Could you please ask something related to those?",
-                "vi": "Xin lỗi, tôi chỉ có thể hỗ trợ các nội dung liên quan đến hệ thống — như tra cứu công nợ khách hàng, tra cứu vận đơn, phân tích dữ liệu hoặc tìm kiếm trong kho kiến thức. Bạn có thể đặt câu hỏi liên quan đến các nội dung đó không?"
+                "vi": "Xin lỗi, hệ thống hiện tại chỉ hỗ trợ trả lời các câu hỏi liên quan đến eTMS. "
             }
         }
 

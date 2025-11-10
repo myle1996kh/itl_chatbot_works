@@ -1,0 +1,20 @@
+meta {
+  name: List Tenants
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/admin/tenants
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~limit: 
+  ~offset: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
