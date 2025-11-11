@@ -11,6 +11,7 @@ import { getTenants as getTenantsFromBackend, getSupporters as getSupportersFrom
 import { ChatBubbleIcon, DocumentIcon, ExtractIcon, KnowledgeBaseIcon, UploadIcon, XCircleIcon } from './icons';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import LoginPage from '../pages/LoginPage';
 
 type AdminView = 'sessions' | 'knowledge' | 'users' | 'supporters' | 'escalations';
 
@@ -387,6 +388,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       onLogout();
     }
   };
+
+  // Show login page if not authenticated
+  if (!authenticatedUser) {
+    return (
+      <LoginPage
+        onLoginSuccess={(user: LoginResponse) => {
+          setAuthenticatedUser(user);
+          localStorage.setItem('jwtToken', user.token);
+          localStorage.setItem('currentUser', JSON.stringify(user));
+        }}
+      />
+    );
+  }
 
   return (
     <div className="bg-gray-100 min-h-screen font-sans">
