@@ -17,6 +17,8 @@ from src.config import settings
 from src.services.embedding_service import get_embedding_service
 from src.services.document_processor import get_document_processor
 from src.utils.logging import get_logger
+from src.utils.exceptions import SecurityError
+from src.utils.metrics import rag_cross_tenant_leak_counter
 
 logger = get_logger(__name__)
 
@@ -257,10 +259,14 @@ class RAGService:
         top_k: int = 5,
         section_filter: Optional[str] = None,
         include_section_context: bool = True,
-        expand_to_full_section: bool = False
+        expand_to_full_section: bool = False,
+        enforce_validation: bool = True,
+        chunk_config: Optional[Dict[str, Any]] = None,
+        embedding_config: Optional[Dict[str, Any]] = None,
+        distance_strategy: str = "COSINE"
     ) -> Dict[str, Any]:
         """
-        Query tenant's knowledge base using similarity search with optional section filtering.
+        Query tenant's knowledge base using similarity search with optional section filtering and custom config.
 
         Args:
             tenant_id: Tenant UUID
@@ -269,6 +275,10 @@ class RAGService:
             section_filter: Optional section title/number filter (e.g., "Track and Trace" or "2.3.3")
             include_section_context: Whether to format results with section context for LLM
             expand_to_full_section: If True and top results are from same section, return ALL chunks from that section
+            enforce_validation: If True, raise SecurityError on cross-tenant leak; if False, filter out invalid docs
+            chunk_config: Optional chunking config (chunk_size, chunk_overlap, separators)
+            embedding_config: Optional embedding config (model, dimension)
+            distance_strategy: Distance metric: COSINE, EUCLIDEAN, or INNER_PRODUCT
 
         Returns:
             Dictionary with query results
@@ -291,8 +301,59 @@ class RAGService:
         collection_name = self.get_collection_name(tenant_id)
 
         try:
-            # Get vector store
-            vector_store = self._get_vector_store(tenant_id)
+            # Check if using custom embedding model (ignore dimension parameter if provided)
+            custom_model = embedding_config.get("model") if embedding_config else None
+            default_model = self.embedding_service.model_name
+
+            # Only use custom embedding if model is different from default
+            if custom_model and custom_model != default_model:
+                from src.services.embedding_service import EmbeddingService
+
+                try:
+                    # Create custom embedding service
+                    custom_embedding_service = EmbeddingService(
+                        model_name=custom_model
+                    )
+
+                    # Map distance strategy string to enum
+                    distance_map = {
+                        "COSINE": DistanceStrategy.COSINE,
+                        "EUCLIDEAN": DistanceStrategy.EUCLIDEAN,
+                        "INNER_PRODUCT": DistanceStrategy.INNER_PRODUCT
+                    }
+
+                    # Get the distance strategy enum
+                    selected_distance = distance_map.get(distance_strategy, DistanceStrategy.COSINE)
+
+                    # Create vector store with custom embedding and distance strategy
+                    vector_store = PGVector(
+                        embeddings=custom_embedding_service,
+                        collection_name=self.collection_name,
+                        connection=self.connection_string,
+                        distance_strategy=selected_distance,
+                        pre_delete_collection=False,
+                        use_jsonb=True
+                    )
+
+                    logger.debug(
+                        "using_custom_embedding_config",
+                        tenant_id=tenant_id,
+                        embedding_model=custom_model,
+                        embedding_dimension=custom_embedding_service.dimension,
+                        distance_strategy=distance_strategy
+                    )
+
+                except Exception as e:
+                    logger.error(
+                        "custom_embedding_init_failed",
+                        tenant_id=tenant_id,
+                        model=custom_model,
+                        error=str(e)
+                    )
+                    raise
+            else:
+                # Use default vector store with default embedding service
+                vector_store = self._get_vector_store(tenant_id)
 
             # Build metadata filter
             metadata_filter = {"tenant_id": str(tenant_id)}
@@ -310,11 +371,64 @@ class RAGService:
                 )
 
             # Query with filters
-            results = vector_store.similarity_search_with_score(
+            raw_results = vector_store.similarity_search_with_score(
                 query=query,
                 k=top_k,
                 filter=metadata_filter
             )
+
+            # ✅ Post-query validation (defense in depth against cross-tenant leaks)
+            validated_results = []
+            for doc, score in raw_results:
+                doc_tenant_id = doc.metadata.get("tenant_id")
+
+                # Validate tenant_id match
+                if doc_tenant_id != str(tenant_id):
+                    # Log security event
+                    logger.error(
+                        "rag_cross_tenant_leak_detected",
+                        extra={
+                            "expected_tenant_id": str(tenant_id),
+                            "actual_tenant_id": doc_tenant_id,
+                            "document_id": doc.metadata.get("doc_id"),
+                            "query_preview": query[:100],
+                            "score": score,
+                        },
+                    )
+
+                    # Increment monitoring counter
+                    rag_cross_tenant_leak_counter.labels(
+                        tenant_id=str(tenant_id), leak_source="pgvector"
+                    ).inc()
+
+                    # Enforce validation policy
+                    if enforce_validation:
+                        raise SecurityError(
+                            f"Cross-tenant document leak detected in RAG query. "
+                            f"Expected tenant {tenant_id}, got {doc_tenant_id}. "
+                            "This incident has been logged.",
+                            details={
+                                "expected_tenant_id": str(tenant_id),
+                                "actual_tenant_id": doc_tenant_id,
+                                "document_id": doc.metadata.get("doc_id"),
+                            },
+                        )
+                    else:
+                        # Skip invalid document (fail-open mode)
+                        logger.warning(
+                            "rag_cross_tenant_leak_filtered",
+                            extra={
+                                "expected_tenant_id": str(tenant_id),
+                                "actual_tenant_id": doc_tenant_id,
+                                "enforce_validation": False,
+                            },
+                        )
+                        continue
+
+                validated_results.append((doc, score))
+
+            # Use validated results for remaining processing
+            results = validated_results
 
             # Check if we should expand to full section
             should_expand = False
@@ -344,7 +458,7 @@ class RAGService:
             # Expand to full section if needed
             if should_expand and dominant_section:
                 # Query for ALL chunks from this section
-                full_section_results = vector_store.similarity_search_with_score(
+                full_section_raw_results = vector_store.similarity_search_with_score(
                     query=query,
                     k=100,  # High limit to get all chunks
                     filter={
@@ -352,6 +466,37 @@ class RAGService:
                         "section_title": dominant_section
                     }
                 )
+
+                # Validate full section results
+                full_section_validated = []
+                for doc, score in full_section_raw_results:
+                    doc_tenant_id = doc.metadata.get("tenant_id")
+                    if doc_tenant_id != str(tenant_id):
+                        logger.error(
+                            "rag_cross_tenant_leak_detected_full_section",
+                            extra={
+                                "expected_tenant_id": str(tenant_id),
+                                "actual_tenant_id": doc_tenant_id,
+                                "document_id": doc.metadata.get("doc_id"),
+                            },
+                        )
+                        rag_cross_tenant_leak_counter.labels(
+                            tenant_id=str(tenant_id), leak_source="pgvector"
+                        ).inc()
+                        if enforce_validation:
+                            raise SecurityError(
+                                f"Cross-tenant document leak in full section query. "
+                                f"Expected tenant {tenant_id}, got {doc_tenant_id}.",
+                                details={
+                                    "expected_tenant_id": str(tenant_id),
+                                    "actual_tenant_id": doc_tenant_id,
+                                    "document_id": doc.metadata.get("doc_id"),
+                                },
+                            )
+                        continue
+                    full_section_validated.append((doc, score))
+
+                full_section_results = full_section_validated
 
                 # Sort by paragraph_index or chunk_index for sequential reading
                 full_section_results = sorted(
@@ -429,6 +574,9 @@ class RAGService:
                 "expanded_section": dominant_section if should_expand else None
             }
 
+        except SecurityError:
+            # Re-raise SecurityError without catching (let it propagate to FastAPI handler)
+            raise
         except Exception as e:
             logger.error(
                 "query_knowledge_base_failed",
