@@ -1,0 +1,53 @@
+# Workflow Status Tracker
+# This tracks progress through BMM methodology phases
+# Project: ITL_chatbot
+# Track: BMad Method - Brownfield
+
+generated: "2025-11-11"
+project: "ITL_chatbot"
+project_type: "software"
+selected_track: "method"
+field_type: "brownfield"
+workflow_path: "bmad\ setup/bmad/bmm/workflows/workflow-status/paths/method-brownfield.yaml"
+
+# Workflow Status Summary
+# STATUS DEFINITIONS:
+#   required: Must be completed to progress
+#   optional: Can be completed but not required
+#   recommended: Strongly suggested but not required
+#   conditional: Required only if certain conditions are met
+#   skipped: Workflow was intentionally skipped
+#   {file-path}: Workflow completed - file created/found at this path
+
+workflow_status:
+  # ================================================
+  # Prerequisite Phase: Documentation
+  # ================================================
+  # NOT a phase - prerequisite for brownfield projects without full documentation
+  document-project: "Documentation/index.md"
+
+  # ================================================
+  # Phase 0: Discovery (Optional)
+  # ================================================
+  brainstorm-project: "optional"
+  research: "optional"
+  product-brief: "optional"
+
+  # ================================================
+  # Phase 1: Planning
+  # ================================================
+  prd: "Documentation/PRD.md"
+  validate-prd: "optional"
+  create-design: "conditional"
+
+  # ================================================
+  # Phase 2: Solutioning
+  # ================================================
+  create-architecture: "recommended"
+  validate-architecture: "optional"
+  solutioning-gate-check: "skipped"
+
+  # ================================================
+  # Phase 3: Implementation
+  # ================================================
+  sprint-planning: "skipped"
