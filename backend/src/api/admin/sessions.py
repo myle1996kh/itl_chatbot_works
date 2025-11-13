@@ -35,19 +35,7 @@ async def list_tenant_sessions(
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant not found")
 
-        # Verify admin is from same tenant
-        admin_tenant_id = admin_payload.get("tenant_id")
-        if admin_tenant_id != tenant_id:
-            logger.warning(
-                "list_sessions_denied",
-                admin_tenant_id=admin_tenant_id,
-                target_tenant_id=tenant_id,
-                reason="tenant_mismatch"
-            )
-            raise HTTPException(
-                status_code=403,
-                detail="Can only view sessions in your tenant"
-            )
+        # Admin can view all tenants (no tenant restriction)
 
         # Get total count
         total = db.query(ChatSession).filter(
@@ -72,6 +60,8 @@ async def list_tenant_sessions(
                 created_at=session.created_at.isoformat(),
                 last_message_at=session.last_message_at.isoformat() if session.last_message_at else None,
                 message_count=len(session.messages) if session.messages else 0,
+                escalation_status=session.escalation_status,
+                assigned_supporter_id=str(session.assigned_user_id) if session.assigned_user_id else None,
             )
             for session in sessions
         ]
@@ -120,19 +110,7 @@ async def get_session_details(
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant not found")
 
-        # Verify admin is from same tenant
-        admin_tenant_id = admin_payload.get("tenant_id")
-        if admin_tenant_id != tenant_id:
-            logger.warning(
-                "get_session_denied",
-                admin_tenant_id=admin_tenant_id,
-                target_tenant_id=tenant_id,
-                reason="tenant_mismatch"
-            )
-            raise HTTPException(
-                status_code=403,
-                detail="Can only view sessions in your tenant"
-            )
+        # Admin can view all tenants (no tenant restriction)
 
         # Get session
         session = db.query(ChatSession).filter(

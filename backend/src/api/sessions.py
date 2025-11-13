@@ -97,6 +97,8 @@ async def list_sessions(
                     last_message_at=session.last_message_at,
                     message_count=message_count,
                     last_message_preview=last_message_preview,
+                    escalation_status=session.escalation_status,
+                    assigned_supporter_id=str(session.assigned_user_id) if session.assigned_user_id else None,
                     metadata=session.session_metadata,
                 )
             )

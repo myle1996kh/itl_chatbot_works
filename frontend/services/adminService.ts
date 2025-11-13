@@ -158,7 +158,7 @@ export async function getSupporters(
 ): Promise<Supporter[]> {
   try {
     const response = await fetch(
-      `${API_BASE_URL}/api/admin/tenants/${tenantId}/supporters`,
+      `${API_BASE_URL}/api/admin/tenants/${tenantId}/staff`,
       {
         method: 'GET',
         headers: {
@@ -173,17 +173,17 @@ export async function getSupporters(
       return [];
     }
 
-    const data: SupporterListResponse = await response.json();
+    const data: any = await response.json();
 
     if (!data.success) {
       return [];
     }
 
     // Convert backend response to frontend Supporter format
-    // Backend payload does not include tenant_id per supporter, so use the requested tenantId
-    return data.supporters.map(s => ({
-      id: s.supporter_id,
-      name: s.display_name,
+    // Backend returns staff users with role='supporter'
+    return data.staff.map((s: any) => ({
+      id: s.user_id,
+      name: s.display_name || s.username,
       tenantId: tenantId,
     }));
   } catch (error) {

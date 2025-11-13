@@ -74,6 +74,8 @@ class SessionSummary(BaseModel):
     last_message_at: datetime
     message_count: int
     last_message_preview: Optional[str] = Field(None, description="Preview of the last message")
+    escalation_status: Optional[str] = Field(None, description="Escalation status (none, pending, assigned, resolved)")
+    assigned_supporter_id: Optional[str] = Field(None, description="UUID of assigned supporter/staff member")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Session metadata")
 
 

@@ -180,7 +180,7 @@ async def root():
 
 
 # Import and include routers
-from src.api import chat, sessions, auth
+from src.api import chat, sessions, auth, supporter
 
 # Authentication endpoints (Phase 0)
 app.include_router(auth.router, tags=["auth"])
@@ -188,6 +188,9 @@ app.include_router(auth.router, tags=["auth"])
 # Chat and session management endpoints (Phase 3)
 app.include_router(chat.router, tags=["chat"])
 app.include_router(sessions.router, tags=["sessions"])
+
+# Supporter chat endpoints (Phase 9 - Escalation)
+app.include_router(supporter.router, tags=["supporter"])
 
 # Admin endpoints (Phase 4 & Phase 8)
 from src.api.admin import agents, tools, tenants, knowledge, escalation, sessions as admin_sessions

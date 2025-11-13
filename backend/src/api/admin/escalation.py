@@ -466,12 +466,12 @@ async def get_escalation_queue(
         # Convert escalations to response objects
         escalations = [
             EscalationResponse(
-                session_id=esc.session_id,
-                tenant_id=esc.tenant_id,
-                user_id=esc.user_id,
+                session_id=str(esc.session_id),
+                tenant_id=str(esc.tenant_id),
+                user_id=str(esc.user_id) if esc.user_id else None,
                 escalation_status=esc.escalation_status,
                 escalation_reason=esc.escalation_reason,
-                assigned_user_id=esc.assigned_user_id,
+                assigned_user_id=str(esc.assigned_user_id) if esc.assigned_user_id else None,
                 escalation_requested_at=esc.escalation_requested_at,
                 escalation_assigned_at=esc.escalation_assigned_at,
                 created_at=esc.created_at,

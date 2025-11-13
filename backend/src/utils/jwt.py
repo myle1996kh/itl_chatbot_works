@@ -5,12 +5,13 @@ from fastapi import HTTPException, status
 from src.config import settings
 
 
-def decode_jwt(token: str) -> Dict[str, Any]:
+def decode_jwt(token: str, verify_signature: bool = True) -> Dict[str, Any]:
     """
     Decode and validate JWT token using RS256 algorithm.
 
     Args:
         token: JWT token string
+        verify_signature: If False, skip signature verification (dev mode only)
 
     Returns:
         Decoded JWT payload
@@ -19,6 +20,33 @@ def decode_jwt(token: str) -> Dict[str, Any]:
         HTTPException: If token is invalid or expired
     """
     try:
+        # In development with DISABLE_AUTH, handle mock tokens
+        if not verify_signature:
+            # Handle mock tokens (format: mock_jwt.{user_id}.{tenant_id}.{role})
+            if token.startswith("mock_jwt."):
+                parts = token.split(".")
+                if len(parts) >= 4:
+                    return {
+                        "sub": parts[1],
+                        "tenant_id": parts[2],
+                        "roles": [parts[3]],
+                    }
+
+            # Try to decode as regular JWT without signature verification
+            try:
+                payload = jwt.decode(
+                    token,
+                    options={"verify_signature": False}
+                )
+                return payload
+            except jwt.DecodeError:
+                # If still can't decode, raise error
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Invalid token format",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
         if not settings.JWT_PUBLIC_KEY:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

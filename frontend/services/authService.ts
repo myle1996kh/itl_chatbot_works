@@ -544,12 +544,52 @@ export function hasRole(requiredRole: string): boolean {
 }
 
 /**
+ * Decode JWT token to extract payload (without verification)
+ * Note: This is for client-side use only. Always verify on the server.
+ *
+ * @param token - JWT token
+ * @returns Decoded payload or null if invalid
+ */
+function decodeJWT(token: string): Record<string, any> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const decoded = atob(parts[1]);
+    return JSON.parse(decoded);
+  } catch (error) {
+    console.error('Failed to decode JWT:', error);
+    return null;
+  }
+}
+
+/**
+ * Get user role from JWT token
+ * Prefers JWT decoding over localStorage for security
+ *
+ * @returns User role or null
+ */
+export function getUserRole(): string | null {
+  const token = getJWTToken();
+  if (token) {
+    const payload = decodeJWT(token);
+    if (payload?.role) {
+      return payload.role;
+    }
+  }
+
+  // Fallback to localStorage
+  const user = getCurrentUser();
+  return user?.role || null;
+}
+
+/**
  * Check if current user is admin
  *
  * @returns True if user is admin
  */
 export function isAdmin(): boolean {
-  return hasRole('admin');
+  return getUserRole() === 'admin';
 }
 
 /**
@@ -558,7 +598,7 @@ export function isAdmin(): boolean {
  * @returns True if user is staff
  */
 export function isStaff(): boolean {
-  return hasRole('staff');
+  return getUserRole() === 'staff' || getUserRole() === 'supporter';
 }
 
 /**

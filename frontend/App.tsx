@@ -108,14 +108,7 @@ const App: React.FC = () => {
   if (view === 'admin') {
     return (
         <div>
-            <button
-                onClick={() => setView('demo')}
-                className="fixed top-5 right-5 z-50 bg-gray-700 text-white py-2 px-4 rounded-lg shadow-lg hover:bg-gray-800 transition-colors flex items-center gap-2"
-            >
-                <ChatBubbleIcon className="h-5 w-5" />
-                Switch to Demo View
-            </button>
-            <AdminDashboard />
+            <AdminDashboard onSwitchToDemo={() => setView('demo')} />
         </div>
     );
   }

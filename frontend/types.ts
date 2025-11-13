@@ -56,6 +56,7 @@ export interface ChatSession {
     userEmail: string;
     messages: Message[];
     assignedSupporterId: string | null;
+    escalationStatus?: string;
     lastActivity: string;
 }
 

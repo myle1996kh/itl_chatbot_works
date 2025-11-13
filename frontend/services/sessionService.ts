@@ -7,7 +7,7 @@
  * - Session persistence
  */
 
-import { getJWTToken, setApiBaseUrl, getApiBaseUrl } from './authService';
+import { getJWTToken, setApiBaseUrl, getApiBaseUrl, getCurrentUser } from './authService';
 
 export interface Message {
   message_id: string;
@@ -24,6 +24,8 @@ export interface SessionSummary {
   last_message_at?: string;
   message_count: number;
   last_message_preview: string;
+  escalation_status?: string;
+  assigned_supporter_id?: string;
   metadata?: Record<string, any>;
 }
 
@@ -215,28 +217,101 @@ export async function getSessionDetail(
 
 
 /**
+ * Get sessions assigned to a supporter
+ *
+ * This endpoint allows supporters to view their own assigned sessions.
+ *
+ * @param tenantId - UUID of the tenant
+ * @param supporterId - UUID of the supporter
+ * @returns Sessions assigned to the supporter
+ */
+export async function getSupporterSessions(
+  tenantId: string,
+  supporterId: string
+): Promise<SessionSummary[]> {
+  try {
+    const base = resolveBaseUrl(API_BASE_URL);
+    const token = getJWTToken();
+    if (!token) {
+      console.warn('❌ No JWT token available, cannot fetch supporter sessions');
+      console.warn('🔍 Debug info:', {
+        jwtToken: localStorage.getItem('jwtToken') ? '(exists)' : '(missing)',
+        currentUser: localStorage.getItem('currentUser') ? '(exists)' : '(missing)',
+      });
+      return [];
+    }
+    console.log('✅ JWT token found, fetching supporter sessions...');
+
+    const response = await fetch(
+      `${base}/api/tenants/${tenantId}/supporters/${supporterId}/sessions`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error(`Failed to fetch supporter sessions: HTTP ${response.status}`);
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Error details:', errorData);
+      return [];
+    }
+
+    const data = await response.json() as { total: number; sessions: SessionSummary[] };
+    console.log(`✅ Loaded ${data.sessions.length} sessions for supporter (total: ${data.total})`);
+    return data.sessions;
+  } catch (error) {
+    console.error('Failed to get supporter sessions:', error);
+    return [];
+  }
+}
+
+/**
  * Get sessions from backend database
  *
  * This function fetches sessions directly from the backend database.
- * No fallback to localStorage - database persistence is required.
+ * It automatically selects the correct endpoint based on user role:
+ * - If supporter: uses supporter endpoint to get assigned sessions
+ * - If admin: uses admin endpoint to get all tenant sessions
  *
  * @param tenantId - UUID of the tenant
- * @param userId - Optional user ID to filter sessions
+ * @param userId - Optional user ID to filter sessions (for non-admin users)
  * @returns Sessions from backend database
  */
 export async function getSessionsWithFallback(
   tenantId: string,
   userId?: string
 ): Promise<SessionSummary[]> {
-  // Fetch from backend database only
-  if (userId) {
-    const sessions = await getUserSessions(tenantId, userId);
+  // Get current user to check role
+  const currentUser = getCurrentUser();
+
+  if (!currentUser) {
+    console.warn('No current user found, cannot fetch sessions');
+    return [];
+  }
+
+  // If user is a supporter, use the supporter endpoint
+  if (currentUser.role === 'supporter' || currentUser.role === 'staff') {
+    console.log('📌 User is a supporter/staff, using supporter endpoint');
+    const sessions = await getSupporterSessions(tenantId, currentUser.user_id);
     if (sessions.length > 0) {
-      console.log('✅ Loaded sessions from backend database');
+      console.log('✅ Loaded sessions from backend database (supporter endpoint)');
       return sessions;
     }
-  } else {
+  } else if (currentUser.role === 'admin') {
+    // If user is an admin, use the admin endpoint
+    console.log('👨‍💼 User is admin, using admin endpoint');
     const sessions = await getTenantSessions(tenantId);
+    if (sessions.length > 0) {
+      console.log('✅ Loaded sessions from backend database (admin endpoint)');
+      return sessions;
+    }
+  } else if (userId) {
+    // Fallback: if specific userId provided, use that
+    const sessions = await getUserSessions(tenantId, userId);
     if (sessions.length > 0) {
       console.log('✅ Loaded sessions from backend database');
       return sessions;
@@ -245,4 +320,53 @@ export async function getSessionsWithFallback(
 
   console.log('ℹ️ No sessions found in backend database');
   return [];
+}
+
+/**
+ * Send a supporter message to a session
+ *
+ * @param tenantId - UUID of the tenant
+ * @param sessionId - UUID of the session
+ * @param message - Message text from supporter
+ * @returns Message response
+ */
+export async function sendSupporterMessage(
+  tenantId: string,
+  sessionId: string,
+  message: string
+): Promise<any> {
+  try {
+    const base = resolveBaseUrl(API_BASE_URL);
+    const token = getJWTToken();
+    if (!token) {
+      throw new Error('No JWT token available');
+    }
+
+    const response = await fetch(
+      `${base}/api/tenants/${tenantId}/supporter-chat`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          message: message,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Failed to send message: ${errorData.detail || response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ Supporter message sent');
+    return data;
+  } catch (error) {
+    console.error('Failed to send supporter message:', error);
+    throw error;
+  }
 }

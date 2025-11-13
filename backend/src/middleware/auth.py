@@ -58,14 +58,24 @@ async def get_current_user(
         logger.warning(
             "auth_bypassed",
             reason="DISABLE_AUTH=True (development only)",
-            environment=settings.ENVIRONMENT
+            environment=settings.ENVIRONMENT,
+            has_credentials=bool(credentials)
         )
+
+        # If credentials provided, decode without verifying signature
+        if credentials:
+            token = credentials.credentials
+            payload = decode_jwt(token, verify_signature=False)
+            return payload
+
+        # If no credentials but DISABLE_AUTH=true, return mock user for development
+        # This allows testing without requiring JWT tokens
+        import uuid
         return {
-            "sub": "test_user_001",
-            # Align dev-bypass tenant with eTMS UUID used elsewhere
-            "tenant_id": "3105b788-b5ff-4d56-88a9-532af4ab4ded",
-            "roles": ["admin"],
-            "test_mode": True
+            "sub": str(uuid.uuid4()),  # Generate random user_id for this request
+            "roles": ["admin"],  # Default to admin role in dev mode
+            "test_mode": True,
+            "disabled_auth": True
         }
 
     # PRODUCTION MODE: Enforce JWT authentication
@@ -106,7 +116,7 @@ async def get_current_tenant(
     Raises:
         HTTPException: If token is invalid or tenant_id not found
     """
-    # TESTING MODE: Extract tenant_id from request path
+    # TESTING MODE: Extract tenant_id from request path or return mock
     if settings.DISABLE_AUTH:
         # Only allow in development
         if settings.ENVIRONMENT == "production":
@@ -132,14 +142,21 @@ async def get_current_tenant(
             except ValueError:
                 pass
 
-        # Fallback to eTMS tenant for testing if not valid UUID
+        # No valid tenant_id found in URL - use from JWT credentials if available
+        if credentials:
+            token = credentials.credentials
+            payload = decode_jwt(token, verify_signature=False)
+            if payload and payload.get("tenant_id"):
+                return payload.get("tenant_id")
+
+        # Return empty string - admin endpoints don't always need tenant_id in dev mode
         logger.warning(
-            "tenant_auth_bypassed",
-            reason="DISABLE_AUTH=True (development only)",
+            "tenant_auth_bypass_no_path_tenant",
+            reason="DISABLE_AUTH=True (development only) and no valid tenant_id in URL path",
             environment=settings.ENVIRONMENT,
-            fallback="eTMS"
+            path=request.url.path
         )
-        return "3105b788-b5ff-4d56-88a9-532af4ab4ded"
+        return ""
 
     # PRODUCTION MODE: Extract from JWT
     if not credentials:
@@ -289,10 +306,11 @@ async def require_admin_role(
             reason="DISABLE_AUTH=True (development only)",
             environment=settings.ENVIRONMENT
         )
+        # In development mode with DISABLE_AUTH, return mock admin to allow testing
+        # Frontend login will provide real JWT tokens with actual user IDs
         return {
-            "sub": "test_admin_001",
-            # Align dev-bypass tenant with eTMS UUID used elsewhere
-            "tenant_id": "3105b788-b5ff-4d56-88a9-532af4ab4ded",
+            "sub": "dev_admin_user",
+            "tenant_id": "",  # Will be extracted from URL path via get_current_tenant
             "roles": ["admin"],
             "test_mode": True
         }

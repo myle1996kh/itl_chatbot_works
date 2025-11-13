@@ -25,7 +25,7 @@ export interface EscalationResponse {
   user_id: string;
   escalation_status: string;
   escalation_reason: string;
-  assigned_supporter_id?: string;
+  assigned_user_id?: string;
   escalation_requested_at: string;
   escalation_assigned_at?: string;
   created_at: string;
@@ -208,7 +208,7 @@ export async function assignSupporter(
         },
         body: JSON.stringify({
           session_id: sessionId,
-          supporter_id: supporterId,
+          user_id: supporterId,
         }),
       }
     );
@@ -388,7 +388,7 @@ export async function getSupporters(
     }
 
     const response = await fetch(
-      `${API_BASE_URL}/api/admin/tenants/${tenantId}/supporters`,
+      `${API_BASE_URL}/api/admin/tenants/${tenantId}/staff`,
       {
         method: 'GET',
         headers: {
@@ -406,7 +406,21 @@ export async function getSupporters(
     }
 
     const data = await response.json();
-    return data as SupportersResponse;
+    // Map staff response to Supporter format (user_id -> supporter_id)
+    const supporters: Supporter[] = (data.staff || []).map((staff: any) => ({
+      supporter_id: staff.user_id,
+      email: staff.email,
+      username: staff.username,
+      display_name: staff.display_name,
+      status: staff.supporter_status,
+      created_at: staff.created_at,
+    }));
+
+    return {
+      success: true,
+      supporters: supporters,
+      total: data.total,
+    };
   } catch (error) {
     console.error('getSupporters error:', error);
     throw error;

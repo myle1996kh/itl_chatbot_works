@@ -412,3 +412,4 @@ docker-compose logs redis
 - **FastAPI**: https://fastapi.tiangolo.com/
 - **SQLAlchemy 2.0**: https://docs.sqlalchemy.org/en/20/
 - **sentence-transformers**: https://www.sbert.net/
+- List todo list and confirm action before coding too much, every summary that update back to main files, not create each file - like over documentation - one file unified - any note needed clear chat then list todo remaining > minimize token

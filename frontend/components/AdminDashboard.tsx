@@ -7,7 +7,7 @@ import { uploadDocument, getKnowledgeBaseStats, ingestTexts } from '../services/
 import { AGENT_NAMES } from '../src/config/topic-agent-mapping';
 import { getCurrentUser, logout, isAdmin, isStaff, type LoginResponse } from '../services/authService';
 import { getEscalationQueue, assignSupporter as assignSupporterToEscalation, resolveEscalation, getSupporters, escalateSession, type EscalationResponse, type Supporter as EscalationSupporter } from '../services/escalationService';
-import { getSessionsWithFallback, getSessionDetail, type SessionSummary, type SessionDetail } from '../services/sessionService';
+import { getSessionsWithFallback, getSessionDetail, sendSupporterMessage, type SessionSummary, type SessionDetail } from '../services/sessionService';
 import { getTenants as getTenantsFromBackend, getSupporters as getSupportersFromBackend, listUsers, listTenantUsers, createSupporter, updateSupporter, deleteSupporter } from '../services/adminService';
 import { ChatBubbleIcon, DocumentIcon, ExtractIcon, KnowledgeBaseIcon, UploadIcon, XCircleIcon } from './icons';
 import Markdown from 'react-markdown';
@@ -25,9 +25,10 @@ const findTenant = (id: string, tenantsList: Tenant[]) =>
 
 interface AdminDashboardProps {
   onLogout?: () => void;
+  onSwitchToDemo?: () => void;
 }
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDemo }) => {
   // Authentication state
   const [authenticatedUser, setAuthenticatedUser] = useState<LoginResponse | null>(getCurrentUser());
   const [userRole, setUserRole] = useState<string | null>(authenticatedUser?.role || null);
@@ -208,6 +209,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           tenantId: filterTenantId,
           userEmail: summary.user_id,
           messages: [], // Messages loaded on demand
+          assignedSupporterId: summary.assigned_supporter_id || null,
+          escalationStatus: summary.escalation_status,
           lastActivity: summary.last_message_at || summary.created_at,
         }));
       } else {
@@ -388,33 +391,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       if (jwtToken) {
         const tenantId = selectedSession?.tenantId || filterTenantId;
         let targetSupporterId = supporterId;
-        // If selected id is not in current backendSupporters by id (supporters API), it may be a user_id
-        const inCurrent = backendSupporters.some(s => s.id === supporterId);
-        if (!inCurrent) {
-          // Attempt to create supporter from this user id
-          try {
-            const created = await createSupporter(tenantId, supporterId, 5, jwtToken);
-            targetSupporterId = created.supporter_id || created.id || supporterId;
-          } catch (createErr) {
-            console.error('Failed to create supporter from user:', createErr);
-          }
-        }
+
         try {
-          await assignSupporterToEscalation(tenantId, sessionId, targetSupporterId);
-        } catch (err) {
-          console.warn('Assign failed, attempting auto-escalate then retry...', err);
-          // Auto-escalate the session if it's not escalated yet, then retry assign
-          try {
-            await escalateSession(tenantId, sessionId, 'Manual assignment by admin');
-            await assignSupporterToEscalation(tenantId, sessionId, targetSupporterId);
-          } catch (retryErr) {
-            console.error('Assign supporter failed after auto-escalate:', retryErr);
-            throw retryErr;
-          }
+          // Step 1: Escalate the session first (required before assignment)
+          console.log('Step 1: Escalating session...');
+          await escalateSession(tenantId, sessionId, 'Manual assignment by admin');
+          console.log('✓ Session escalated');
+        } catch (escalateErr) {
+          console.error('Failed to escalate session:', escalateErr);
+          alert(`Failed to escalate session: ${escalateErr instanceof Error ? escalateErr.message : String(escalateErr)}`);
+          return;
         }
+
+        try {
+          // Step 2: Assign the supporter to the escalated session
+          console.log('Step 2: Assigning supporter...');
+          await assignSupporterToEscalation(tenantId, sessionId, targetSupporterId);
+          console.log('✓ Supporter assigned');
+        } catch (assignErr) {
+          console.error('Failed to assign supporter:', assignErr);
+          alert(`Failed to assign supporter: ${assignErr instanceof Error ? assignErr.message : String(assignErr)}`);
+          return;
+        }
+
         // Refresh sessions and selected session
         await loadChatSessions();
         setSelectedSession(prev => prev ? { ...prev, assignedSupporterId: supporterId || null } : prev);
+        alert('✓ Supporter assigned successfully!');
         return;
       }
 
@@ -428,6 +431,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       loadChatSessions();
     } catch (e) {
       console.error('Failed to assign supporter:', e);
+      alert(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -546,23 +550,32 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     }
   }
   
-  const handleSendSupporterMessage = () => {
-    if (!supporterInput.trim() || !selectedSession || !currentUser) return;
+  const handleSendSupporterMessage = async () => {
+    if (!supporterInput.trim() || !selectedSession) return;
 
+    const supporterName = currentUser?.name || authenticatedUser?.display_name || 'Supporter';
+    const messageText = supporterInput;
+    setSupporterInput(''); // Clear input immediately
+
+    // Optimistic update - add message to UI right away
     const newMessage: Message = {
         id: `supporter-${Date.now()}`,
-        text: supporterInput,
+        text: messageText,
         sender: 'supporter',
         timestamp: new Date().toISOString(),
-        supporterName: currentUser.name,
+        supporterName: supporterName,
     };
 
-    const sessionData = JSON.parse(localStorage.getItem(selectedSession.id)!);
-    sessionData.messages.push(newMessage);
-    localStorage.setItem(selectedSession.id, JSON.stringify(sessionData));
+    setSelectedSession(prev => prev ? { ...prev, messages: [...(prev.messages || []), newMessage] } : null);
 
-    setSupporterInput('');
-    loadChatSessions(); // Reload to reflect the change
+    // Send to backend
+    try {
+      await sendSupporterMessage(selectedSession.tenantId, selectedSession.id, messageText);
+      console.log('✓ Message sent to backend');
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      // Keep the message in UI anyway (it was already displayed optimistically)
+    }
   };
 
   const loadEscalations = async () => {
@@ -679,16 +692,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           </div>
         </div>
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex border-t">
-            <button onClick={() => setView('sessions')} className={`px-4 py-3 text-sm font-medium border-b-2 ${view === 'sessions' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Chat Sessions</button>
-            <button onClick={() => setView('knowledge')} className={`px-4 py-3 text-sm font-medium border-b-2 ${view === 'knowledge' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Knowledge Base</button>
-            <button onClick={() => { setView('escalations'); loadEscalations(); }} className={`px-4 py-3 text-sm font-medium border-b-2 ${view === 'escalations' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-              Escalations {escalationStats.pending > 0 && <span className="ml-2 inline-block px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded-full font-semibold">{escalationStats.pending}</span>}
-            </button>
-            {authenticatedUser && isAdmin() && (
-              <>
-                <button onClick={() => setView('users')} className={`px-4 py-3 text-sm font-medium border-b-2 ${view === 'users' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>User Management</button>
-                <button onClick={() => setView('supporters')} className={`px-4 py-3 text-sm font-medium border-b-2 ${view === 'supporters' ? 'border-green-500 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Supporter Management</button>
-              </>
+            <div className="flex">
+              <button onClick={() => setView('sessions')} className={`px-4 py-3 text-sm font-medium border-b-2 ${view === 'sessions' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Chat Sessions</button>
+              <button onClick={() => setView('knowledge')} className={`px-4 py-3 text-sm font-medium border-b-2 ${view === 'knowledge' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Knowledge Base</button>
+              <button onClick={() => { setView('escalations'); loadEscalations(); }} className={`px-4 py-3 text-sm font-medium border-b-2 ${view === 'escalations' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                Escalations {escalationStats.pending > 0 && <span className="ml-2 inline-block px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded-full font-semibold">{escalationStats.pending}</span>}
+              </button>
+              {authenticatedUser && isAdmin() && (
+                <>
+                  <button onClick={() => setView('users')} className={`px-4 py-3 text-sm font-medium border-b-2 ${view === 'users' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>User Management</button>
+                  <button onClick={() => setView('supporters')} className={`px-4 py-3 text-sm font-medium border-b-2 ${view === 'supporters' ? 'border-green-500 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Supporter Management</button>
+                </>
+              )}
+            </div>
+            {onSwitchToDemo && (
+              <button
+                onClick={onSwitchToDemo}
+                className="ml-auto my-1 px-4 py-2 bg-gray-700 text-white text-sm font-medium rounded-md hover:bg-gray-800 transition-colors flex items-center gap-2"
+              >
+                <ChatBubbleIcon className="h-5 w-5" />
+                Switch to Demo View
+              </button>
             )}
         </nav>
       </header>
@@ -733,11 +757,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                 <div className="p-4 border-b flex justify-between items-center">
                     <div>
                         <h2 className="text-lg font-semibold">{selectedSession.userEmail}</h2>
-                        <p className="text-sm text-gray-600">Assigned to: {findSupporter(selectedSession.assignedSupporterId, supporters)?.name || 'Unassigned'}</p>
+                        {selectedSession.assignedSupporterId ? (
+                          <p className="text-sm text-green-600 font-medium">
+                            ✓ Assigned to @{findSupporter(selectedSession.assignedSupporterId, supporters)?.name || 'Unknown'}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-gray-600">Not assigned</p>
+                        )}
                     </div>
-                    {!currentUser && (
+                    {!currentUser && !selectedSession.assignedSupporterId && (
                     <div>
-                        <select value={selectedSession.assignedSupporterId || ''} onChange={e => assignSupporter(selectedSession.id, e.target.value)} className="rounded-md border-gray-300 text-sm">
+                        <select value="" onChange={e => assignSupporter(selectedSession.id, e.target.value)} className="rounded-md border-gray-300 text-sm">
                             <option value="">Assign to...</option>
                             {supporters.filter(s => s.tenantId === selectedSession.tenantId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
@@ -758,10 +788,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                     </div>
                   ))}
                 </div>
-                {currentUser && (
+                {(currentUser || (authenticatedUser && (authenticatedUser.role === 'supporter' || authenticatedUser.role === 'staff'))) && (
                     <div className="p-3 border-t bg-white">
                         <div className="flex items-center gap-2">
-                        <input value={supporterInput} onChange={e => setSupporterInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && handleSendSupporterMessage()} className="flex-1 border-gray-300 rounded-full py-2 px-4 focus:ring-2" placeholder={`Reply as ${currentUser.name}...`} />
+                        <input value={supporterInput} onChange={e => setSupporterInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && handleSendSupporterMessage()} className="flex-1 border-gray-300 rounded-full py-2 px-4 focus:ring-2" placeholder={`Reply as ${currentUser?.name || authenticatedUser?.display_name || 'Supporter'}...`} />
                         <button onClick={handleSendSupporterMessage} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700">Send</button>
                         </div>
                     </div>
@@ -1163,6 +1193,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                       >
                         <p className="font-semibold text-sm text-gray-800">{esc.user_id}</p>
                         <p className="text-xs text-gray-600 mt-1">Status: <span className="font-medium capitalize">{esc.escalation_status}</span></p>
+                        <p className="text-xs mt-1">
+                          {esc.assigned_user_id ? (
+                            <span className="text-green-600">
+                              Assigned to: <span className="font-medium">{escalationSupporters.find(s => s.supporter_id === esc.assigned_user_id)?.display_name || esc.assigned_user_id}</span>
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">Not assigned</span>
+                          )}
+                        </p>
                         <p className="text-xs text-gray-500 mt-1">{new Date(esc.escalation_requested_at).toLocaleString()}</p>
                       </li>
                     ))}
@@ -1189,9 +1228,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                       {selectedEscalation.escalation_assigned_at && (
                         <p><strong>Assigned At:</strong> {new Date(selectedEscalation.escalation_assigned_at).toLocaleString()}</p>
                       )}
-                      {selectedEscalation.assigned_supporter_id && (
-                        <p><strong>Assigned To:</strong> {escalationSupporters.find(s => s.supporter_id === selectedEscalation.assigned_supporter_id)?.display_name || 'Unknown'}</p>
-                      )}
+                      <p>
+                        <strong>Assigned To:</strong>{' '}
+                        {selectedEscalation.assigned_user_id ? (
+                          <span className="text-green-600 font-medium">
+                            {escalationSupporters.find(s => s.supporter_id === selectedEscalation.assigned_user_id)?.display_name || selectedEscalation.assigned_user_id}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">Not assigned</span>
+                        )}
+                      </p>
                     </div>
                   </div>
                   <div className="space-y-3">
