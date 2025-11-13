@@ -1,26 +1,89 @@
 """Chat API endpoints for conversational interface."""
+
 import time
 import uuid
 from typing import Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Path, Body
+from fastapi import APIRouter, Depends, HTTPException, Path, Body, Response
 from sqlalchemy.orm import Session
 from src.config import get_db, settings
 from typing import Optional
 from src.models.session import ChatSession
 from src.models.message import Message
 from src.models.tenant import Tenant
+from src.models.agent import AgentConfig
+from src.models.permissions import TenantAgentPermission
 from src.schemas.chat import ChatRequest, ChatResponse
 from src.services.supervisor_agent import SupervisorAgent
+from src.services.domain_agents import DomainAgent
 from src.middleware.auth import get_current_tenant, verify_tenant_access
 from src.utils.logging import get_logger
+from src.services.llm_manager import llm_manager
+from src.models.tenant_llm_config import TenantLLMConfig
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
 
+def _extract_display_text(agent_response: Dict[str, Any]) -> str:
+    """Extract human-readable text from an agent_response payload.
+
+    Handles several shapes produced by different agents:
+    - agent_response["data"] is a string => return directly
+    - agent_response["data"]["response"] is a list of segments with {text|content}
+    - agent_response["data"] has text/content/message/answer fields
+    - fallback to str(data)
+    """
+    try:
+        data = agent_response.get("data")
+        if data is None:
+            return ""
+        if isinstance(data, str):
+            return data
+
+        def extract_from_node(node):
+            if node is None:
+                return None
+            if isinstance(node, str):
+                return node
+            if isinstance(node, list):
+                parts = []
+                for item in node:
+                    t = extract_from_node(item)
+                    if t and isinstance(t, str):
+                        parts.append(t)
+                return "\n\n".join(parts) if parts else None
+            if isinstance(node, dict):
+                for key in ("text", "content", "message", "answer"):
+                    v = node.get(key)
+                    if isinstance(v, str) and v.strip():
+                        return v
+                # Look into common containers
+                for key in ("response", "outputs", "output", "data"):
+                    v = node.get(key)
+                    t = extract_from_node(v)
+                    if t:
+                        return t
+            return None
+
+        # Try nested paths first
+        text = extract_from_node(data)
+        if text:
+            return text
+
+        # Fallback: stringified data
+        return str(data)
+    except Exception as _:
+        # Last resort
+        try:
+            return str(agent_response.get("data", ""))
+        except Exception:
+            return ""
+
+
 @router.post("/{tenant_id}/chat", response_model=ChatResponse)
 async def chat_endpoint(
+    response: Response,
     tenant_id: str = Path(..., description="Tenant UUID"),
     request: ChatRequest = Body(...),
     db: Session = Depends(get_db),
@@ -56,9 +119,7 @@ async def chat_endpoint(
             raise HTTPException(status_code=403, detail="Access denied to this tenant")
 
         # Create or retrieve session
-        session = await _get_or_create_session(
-            db, tenant_id, request.session_id, request.user_id
-        )
+        session = await _get_or_create_session(db, tenant_id, request.session_id, request.user_id)
 
         # Save user message
         user_message = Message(
@@ -83,22 +144,45 @@ async def chat_endpoint(
         # In production, middleware would inject full JWT token into request state
         jwt_token = request.metadata.get("jwt_token", "") if request.metadata else ""
 
-        # Route message through SupervisorAgent
-        supervisor = SupervisorAgent(
-            db=db,
-            tenant_id=tenant_id,
-            jwt_token=jwt_token,
-            session_id=str(session.session_id)  # Pass session_id for conversation memory
-        )
+        # Route message through SupervisorAgent OR direct to agent if agent_name provided
+        if request.agent_name:
+            # Direct routing: Skip SupervisorAgent and route directly to the specified agent
+            logger.info(
+                "direct_agent_routing",
+                tenant_id=tenant_id,
+                agent_name=request.agent_name,
+                session_id=session.session_id,
+            )
+            agent_response = await _route_to_agent(
+                db=db,
+                tenant_id=tenant_id,
+                agent_name=request.agent_name,
+                message=request.message,
+                session_id=str(session.session_id),
+                jwt_token=jwt_token,
+            )
+        else:
+            # SupervisorAgent routing: Use intent detection and routing
+            logger.info(
+                "supervisor_agent_routing",
+                tenant_id=tenant_id,
+                session_id=session.session_id,
+            )
+            supervisor = SupervisorAgent(
+                db=db,
+                tenant_id=tenant_id,
+                jwt_token=jwt_token,
+                session_id=str(session.session_id),  # Pass session_id for conversation memory
+            )
 
-        agent_response = await supervisor.route_message(request.message)
+            agent_response = await supervisor.route_message(request.message)
 
-        # Save assistant response with full metadata
+        # Save assistant response with text-only content and full metadata
         assistant_message = Message(
             message_id=str(uuid.uuid4()),
             session_id=session.session_id,
             role="assistant",
-            content=str(agent_response.get("data", {})),
+            content=_extract_display_text(agent_response),
             message_metadata={
                 "agent": agent_response.get("agent"),
                 "intent": agent_response.get("intent"),
@@ -117,6 +201,7 @@ async def chat_endpoint(
 
         # Update session metadata - track last message time
         from datetime import datetime, timezone
+
         session.last_message_at = datetime.now(timezone.utc)
 
         db.commit()
@@ -156,13 +241,39 @@ async def chat_endpoint(
             "extracted_entities": agent_metadata.get("extracted_entities", {}),
         }
 
+        # Add rate limit headers if rate limiter is available
+        if llm_manager.rate_limiter:
+            try:
+                # Get the tenant's actual limits
+                tenant_config = (
+                    db.query(TenantLLMConfig).filter(TenantLLMConfig.tenant_id == tenant_id).first()
+                )
+
+                if tenant_config:
+                    actual_limits = llm_manager.rate_limiter.get_remaining_limits(
+                        str(tenant_id), tenant_config.rate_limit_rpm, tenant_config.rate_limit_tpm
+                    )
+
+                    # Add rate limit headers
+                    response.headers["X-RateLimit-Limit-RPM"] = str(actual_limits["rpm_limit"])
+                    response.headers["X-RateLimit-Limit-TPM"] = str(actual_limits["tpm_limit"])
+                    response.headers["X-RateLimit-Remaining-RPM"] = str(
+                        actual_limits["rpm_remaining"]
+                    )
+                    response.headers["X-RateLimit-Remaining-TPM"] = str(
+                        actual_limits["tpm_remaining"]
+                    )
+            except Exception as e:
+                # If rate limit check fails, continue without headers
+                logger.warning("rate_limit_headers_failed", tenant_id=tenant_id, error=str(e))
+
         return ChatResponse(
             session_id=str(session.session_id),
             message_id=str(assistant_message.message_id),
-            response=agent_response.get("data", {}),
+            response={"text": _extract_display_text(agent_response)},
             agent=agent_response.get("agent", "unknown"),
             intent=agent_response.get("intent", "unknown"),
-            format=agent_response.get("format", "text"),
+            format="text",
             renderer_hint=agent_response.get("renderer_hint", {}),
             metadata=response_metadata,
         )
@@ -172,6 +283,7 @@ async def chat_endpoint(
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
         import traceback
+
         error_traceback = traceback.format_exc()
         logger.error(
             "chat_endpoint_error",
@@ -194,15 +306,24 @@ async def _get_or_create_session(
         db: Database session
         tenant_id: Tenant UUID
         session_id: Optional existing session ID
-        user_id: User identifier
+        user_id: User identifier (UUID string from JWT)
 
     Returns:
         ChatSession instance
     """
+    # Validate user_id is a valid UUID
+    try:
+        user_id_uuid = uuid.UUID(user_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid user_id format: {user_id}. Must be valid UUID."
+        )
+
     if session_id:
-        # Validate UUID format
+        # Validate session_id UUID format
         try:
-            uuid.UUID(session_id)
+            session_id_uuid = uuid.UUID(session_id)
         except (ValueError, AttributeError):
             logger.warning(
                 "invalid_session_id_format",
@@ -216,9 +337,9 @@ async def _get_or_create_session(
             session = (
                 db.query(ChatSession)
                 .filter(
-                    ChatSession.session_id == session_id,
+                    ChatSession.session_id == session_id_uuid,
                     ChatSession.tenant_id == tenant_id,
-                    ChatSession.user_id == user_id,
+                    ChatSession.user_id == user_id_uuid,
                 )
                 .first()
             )
@@ -241,7 +362,7 @@ async def _get_or_create_session(
     session = ChatSession(
         session_id=new_session_id,
         tenant_id=tenant_id,
-        user_id=user_id,
+        user_id=user_id_uuid,
         thread_id=thread_id,
         metadata={},
     )
@@ -253,8 +374,132 @@ async def _get_or_create_session(
     return session
 
 
+def get_agent_id_by_name(tenant_id: str, agent_name: str, db: Session) -> str:
+    """
+    Lookup agent_id by agent name for a specific tenant.
+
+    Validates that:
+    1. Agent exists in database
+    2. Agent is enabled for the specified tenant
+
+    Args:
+        tenant_id: Tenant UUID context
+        agent_name: Agent name (e.g., "DebtAgent", "GuidelineAgent")
+        db: Database session
+
+    Returns:
+        agent_id if found and enabled for tenant
+
+    Raises:
+        HTTPException: If agent not found or not enabled for tenant
+    """
+    # Query agent by name
+    agent = db.query(AgentConfig).filter(AgentConfig.name == agent_name).first()
+
+    if not agent:
+        raise HTTPException(status_code=400, detail=f"Agent '{agent_name}' not found")
+
+    # Check if agent is active
+    if not agent.is_active:
+        raise HTTPException(status_code=400, detail=f"Agent '{agent_name}' is not active")
+
+    # Check if enabled for this tenant
+    permission = (
+        db.query(TenantAgentPermission)
+        .filter(
+            TenantAgentPermission.tenant_id == tenant_id,
+            TenantAgentPermission.agent_id == agent.agent_id,
+            TenantAgentPermission.enabled == True,
+        )
+        .first()
+    )
+
+    if not permission:
+        raise HTTPException(
+            status_code=400, detail=f"Agent '{agent_name}' not available for tenant"
+        )
+
+    return str(agent.agent_id)
+
+
+async def _route_to_agent(
+    db: Session,
+    tenant_id: str,
+    agent_name: str,
+    message: str,
+    session_id: str,
+    jwt_token: str,
+) -> Dict[str, Any]:
+    """
+    Route a message directly to a specific agent by name.
+
+    This bypasses the SupervisorAgent and routes directly to the specified agent.
+    Validates that the agent is enabled for the tenant.
+
+    Args:
+        db: Database session
+        tenant_id: Tenant UUID
+        agent_name: Agent name to route to (e.g., 'GuidelineAgent')
+        message: User message
+        session_id: Session ID for conversation memory
+        jwt_token: JWT token for external API calls
+
+    Returns:
+        Agent response dictionary
+
+    Raises:
+        HTTPException: If agent not found or not available for tenant
+    """
+    try:
+        # Lookup agent by name and validate tenant permissions
+        agent_id = get_agent_id_by_name(tenant_id, agent_name, db)
+
+        logger.info(
+            "routing_to_agent",
+            tenant_id=tenant_id,
+            agent_name=agent_name,
+            agent_id=agent_id,
+        )
+
+        # Initialize DomainAgent with the specific agent config
+        domain_agent = DomainAgent(
+            db=db,
+            agent_id=agent_id,
+            tenant_id=tenant_id,
+            jwt_token=jwt_token,
+            session_id=session_id,
+        )
+
+        # Route message through DomainAgent
+        agent_response = await domain_agent.invoke(message)
+
+        logger.info(
+            "agent_response_received",
+            tenant_id=tenant_id,
+            agent_name=agent_name,
+            agent_id=agent_id,
+        )
+
+        return agent_response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "agent_routing_error",
+            tenant_id=tenant_id,
+            agent_name=agent_name,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to route to agent '{agent_name}': {str(e)}",
+        )
+
+
 @router.post("/{tenant_id}/test/chat", response_model=ChatResponse)
 async def test_chat_endpoint(
+    response: Response,
     tenant_id: str = Path(..., description="Tenant UUID"),
     request: ChatRequest = Body(...),
     db: Session = Depends(get_db),
@@ -272,9 +517,7 @@ async def test_chat_endpoint(
             raise HTTPException(status_code=404, detail="Tenant not found")
 
         # Create or retrieve session
-        session = await _get_or_create_session(
-            db, tenant_id, request.session_id, request.user_id
-        )
+        session = await _get_or_create_session(db, tenant_id, request.session_id, request.user_id)
 
         # Save user message
         user_message = Message(
@@ -299,22 +542,45 @@ async def test_chat_endpoint(
         # In production, middleware would inject full JWT token into request state
         jwt_token = request.metadata.get("jwt_token", "") if request.metadata else ""
 
-        # Route message through SupervisorAgent
-        supervisor = SupervisorAgent(
-            db=db,
-            tenant_id=tenant_id,
-            jwt_token=jwt_token,
-            session_id=str(session.session_id)  # Pass session_id for conversation memory
-        )
+        # Route message through SupervisorAgent OR direct to agent if agent_name provided
+        if request.agent_name:
+            # Direct routing: Skip SupervisorAgent and route directly to the specified agent
+            logger.info(
+                "test_direct_agent_routing",
+                tenant_id=tenant_id,
+                agent_name=request.agent_name,
+                session_id=session.session_id,
+            )
+            agent_response = await _route_to_agent(
+                db=db,
+                tenant_id=tenant_id,
+                agent_name=request.agent_name,
+                message=request.message,
+                session_id=str(session.session_id),
+                jwt_token=jwt_token,
+            )
+        else:
+            # SupervisorAgent routing: Use intent detection and routing
+            logger.info(
+                "test_supervisor_agent_routing",
+                tenant_id=tenant_id,
+                session_id=session.session_id,
+            )
+            supervisor = SupervisorAgent(
+                db=db,
+                tenant_id=tenant_id,
+                jwt_token=jwt_token,
+                session_id=str(session.session_id),  # Pass session_id for conversation memory
+            )
 
-        agent_response = await supervisor.route_message(request.message)
+            agent_response = await supervisor.route_message(request.message)
 
-        # Save assistant response with full metadata
+        # Save assistant response with text-only content and full metadata
         assistant_message = Message(
             message_id=str(uuid.uuid4()),
             session_id=session.session_id,
             role="assistant",
-            content=str(agent_response.get("data", {})),
+            content=_extract_display_text(agent_response),
             message_metadata={
                 "agent": agent_response.get("agent"),
                 "intent": agent_response.get("intent"),
@@ -333,6 +599,7 @@ async def test_chat_endpoint(
 
         # Update session metadata - track last message time
         from datetime import datetime, timezone
+
         session.last_message_at = datetime.now(timezone.utc)
 
         db.commit()
@@ -362,13 +629,39 @@ async def test_chat_endpoint(
             "extracted_entities": agent_metadata.get("extracted_entities", {}),
         }
 
+        # Add rate limit headers if rate limiter is available
+        if llm_manager.rate_limiter:
+            try:
+                # Get the tenant's actual limits
+                tenant_config = (
+                    db.query(TenantLLMConfig).filter(TenantLLMConfig.tenant_id == tenant_id).first()
+                )
+
+                if tenant_config:
+                    actual_limits = llm_manager.rate_limiter.get_remaining_limits(
+                        str(tenant_id), tenant_config.rate_limit_rpm, tenant_config.rate_limit_tpm
+                    )
+
+                    # Add rate limit headers
+                    response.headers["X-RateLimit-Limit-RPM"] = str(actual_limits["rpm_limit"])
+                    response.headers["X-RateLimit-Limit-TPM"] = str(actual_limits["tpm_limit"])
+                    response.headers["X-RateLimit-Remaining-RPM"] = str(
+                        actual_limits["rpm_remaining"]
+                    )
+                    response.headers["X-RateLimit-Remaining-TPM"] = str(
+                        actual_limits["tpm_remaining"]
+                    )
+            except Exception as e:
+                # If rate limit check fails, continue without headers
+                logger.warning("rate_limit_headers_failed", tenant_id=tenant_id, error=str(e))
+
         return ChatResponse(
             session_id=str(session.session_id),
             message_id=str(assistant_message.message_id),
-            response=agent_response.get("data", {}),
+            response={"text": _extract_display_text(agent_response)},
             agent=agent_response.get("agent", "unknown"),
             intent=agent_response.get("intent", "unknown"),
-            format=agent_response.get("format", "text"),
+            format="text",
             renderer_hint=agent_response.get("renderer_hint", {}),
             metadata=response_metadata,
         )
@@ -378,6 +671,7 @@ async def test_chat_endpoint(
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
         import traceback
+
         error_traceback = traceback.format_exc()
         logger.error(
             "test_chat_endpoint_error",

@@ -160,3 +160,60 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+# Escalation Feature Schemas
+
+class EscalationRequest(BaseModel):
+    """Request to escalate a chat session."""
+    session_id: str = Field(..., description="UUID of the session to escalate")
+    reason: str = Field(..., max_length=500, description="Reason for escalation")
+    auto_detected: bool = Field(default=False, description="Whether escalation was auto-detected")
+    keywords: Optional[List[str]] = Field(None, description="Keywords that triggered auto-escalation")
+
+
+class EscalationAssignRequest(BaseModel):
+    """Request to assign a supporter to escalated session."""
+    session_id: str = Field(..., description="UUID of the session")
+    user_id: str = Field(..., description="UUID of the staff user to assign")
+
+
+class EscalationResolveRequest(BaseModel):
+    """Request to resolve an escalation."""
+    session_id: str = Field(..., description="UUID of the session")
+    resolution_notes: Optional[str] = Field(None, max_length=500, description="Resolution details")
+
+
+class EscalationResponse(BaseModel):
+    """Response for escalation details."""
+    session_id: str
+    tenant_id: str
+    user_id: str
+    escalation_status: str  # 'pending', 'assigned', 'resolved'
+    escalation_reason: str
+    assigned_user_id: Optional[str] = None
+    escalation_requested_at: datetime
+    escalation_assigned_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class EscalationQueueResponse(BaseModel):
+    """Response for escalation queue list."""
+    pending_count: int
+    assigned_count: int
+    resolved_count: int
+    escalations: List[EscalationResponse]
+
+
+class AutoEscalationDetectionRequest(BaseModel):
+    """Request to check if message should trigger auto-escalation."""
+    message: str = Field(..., description="User message to check")
+    keywords: Optional[List[str]] = Field(None, description="Custom keywords to detect")
+
+
+class AutoEscalationDetectionResponse(BaseModel):
+    """Response for auto-escalation detection."""
+    should_escalate: bool
+    detected_keywords: List[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason: Optional[str] = None

@@ -1,0 +1,26 @@
+[
+  {
+    "tool_id": "tool_base_rag",
+    "name": "RAG Tool",
+    "category": "knowledge",
+    "description": "Retrieval-Augmented Generation tool for searching knowledge base",
+    "tool_type": "rag",
+    "is_active": true
+  },
+  {
+    "tool_id": "tool_base_http_get",
+    "name": "HTTP GET Tool",
+    "category": "api",
+    "description": "HTTP GET request tool for external API calls",
+    "tool_type": "http",
+    "is_active": true
+  },
+  {
+    "tool_id": "tool_base_http_post",
+    "name": "HTTP POST Tool",
+    "category": "api",
+    "description": "HTTP POST request tool for external API calls",
+    "tool_type": "http",
+    "is_active": true
+  }
+]

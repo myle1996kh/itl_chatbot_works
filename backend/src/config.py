@@ -1,6 +1,6 @@
 """Application configuration using Pydantic Settings."""
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 from typing import List
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     TEST_BEARER_TOKEN: str = Field(default="")
 
     # CORS Settings
-    CORS_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:8080")
+    CORS_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:8080")
 
     # Rate Limiting
     DEFAULT_RATE_LIMIT_RPM: int = Field(default=60)
@@ -55,6 +55,21 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins string into list."""
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+
+    @field_validator("DISABLE_AUTH")
+    @classmethod
+    def validate_auth_bypass(cls, v: bool, info) -> bool:
+        """Prevent auth bypass in production environment."""
+        # Get ENVIRONMENT value from the validation context
+        environment = info.data.get("ENVIRONMENT", "production")
+
+        if v and environment == "production":
+            raise ValueError(
+                "DISABLE_AUTH cannot be true in production environment. "
+                "Set ENVIRONMENT=development or DISABLE_AUTH=false"
+            )
+
+        return v
 
     class Config:
         env_file = ".env"

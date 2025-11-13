@@ -278,6 +278,9 @@ async def upload_document(
             additional_metadata = {
                 "uploaded_by_admin": admin_payload.get("user_id"),
                 "original_filename": file.filename,
+                # Mark provenance so sources can be distinguished in vector store
+                "source": "document",
+                "source_detail": "upload_document",
             }
             if document_name:
                 additional_metadata["document_name"] = document_name

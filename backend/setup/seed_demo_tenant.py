@@ -45,15 +45,14 @@ logger = get_logger(__name__)
 
 
 class DemoTenantSeeder:
-    """Seeds demo tenant with all configuration."""
+    """Seeds demo tenants with all configuration."""
 
     def __init__(self, config_path: str = "setup/config.yaml"):
         """Initialize seeder with configuration."""
         self.config_path = Path(config_path)
         self.config = self._load_config()
         self.db = SessionLocal()
-        self.tenant_id: Optional[str] = None
-        self.demo_config = self.config.get("demo_tenant", {})
+        self.demo_tenants = self.config.get("demo_tenants", [])
 
     def _load_config(self) -> dict:
         """Load configuration from YAML."""
@@ -85,12 +84,12 @@ class DemoTenantSeeder:
 
         return value
 
-    def create_tenant(self) -> bool:
+    def create_tenant(self, tenant_config: Dict[str, Any]) -> Optional[str]:
         """Create tenant record."""
         print("\n→ Creating Tenant...")
-
+        tenant_id = None
         try:
-            tenant_info = self.demo_config.get("tenant_info", {})
+            tenant_info = tenant_config.get("tenant_info", {})
             domain = tenant_info.get("domain")
 
             # Check if tenant already exists
@@ -100,14 +99,14 @@ class DemoTenantSeeder:
 
             if existing:
                 logger.info("tenant_exists", domain=domain)
-                self.tenant_id = str(existing.tenant_id)
+                tenant_id = str(existing.tenant_id)
                 print(f"  ⊘ Tenant '{tenant_info.get('name')}' already exists")
-                return True
+                return tenant_id
 
             # Create new tenant
-            self.tenant_id = str(uuid.uuid4())
+            tenant_id = str(uuid.uuid4())
             tenant = Tenant(
-                tenant_id=self.tenant_id,
+                tenant_id=tenant_id,
                 name=tenant_info.get("name"),
                 domain=domain,
                 status=tenant_info.get("status", "active"),
@@ -119,30 +118,30 @@ class DemoTenantSeeder:
 
             logger.info(
                 "tenant_created",
-                tenant_id=self.tenant_id,
+                tenant_id=tenant_id,
                 domain=domain,
             )
             print(f"  ✅ Created Tenant: {tenant_info.get('name')}")
-            print(f"     Tenant ID: {self.tenant_id}")
+            print(f"     Tenant ID: {tenant_id}")
             print(f"     Domain: {domain}")
-            return True
+            return tenant_id
 
         except Exception as e:
             logger.error("create_tenant_failed", error=str(e))
             self.db.rollback()
             print(f"  ❌ Error creating tenant: {str(e)}")
-            return False
+            return None
 
-    def create_llm_config(self) -> bool:
+    def create_llm_config(self, tenant_id: str, tenant_config: Dict[str, Any]) -> bool:
         """Create LLM configuration for tenant."""
         print("\n→ Creating LLM Configuration...")
 
         try:
-            if not self.tenant_id:
+            if not tenant_id:
                 print("  ⚠️  Skipping - tenant not created yet")
                 return True
 
-            llm_config = self.demo_config.get("llm_config", {})
+            llm_config = tenant_config.get("llm_config", {})
             model_id = llm_config.get("model_id")
             api_key = llm_config.get("api_key")
 
@@ -166,12 +165,12 @@ class DemoTenantSeeder:
 
             # Check if config already exists
             existing = self.db.query(TenantLLMConfig).filter(
-                TenantLLMConfig.tenant_id == self.tenant_id,
+                TenantLLMConfig.tenant_id == tenant_id,
                 TenantLLMConfig.llm_model_id == model_id,
             ).first()
 
             if existing:
-                logger.info("tenant_llm_config_exists", tenant_id=self.tenant_id)
+                logger.info("tenant_llm_config_exists", tenant_id=tenant_id)
                 print(f"  ⊘ LLM config already exists for this tenant")
                 return True
 
@@ -185,7 +184,7 @@ class DemoTenantSeeder:
             # Create tenant LLM config
             tenant_llm_config = TenantLLMConfig(
                 tenant_llm_config_id=str(uuid.uuid4()),
-                tenant_id=self.tenant_id,
+                tenant_id=tenant_id,
                 llm_model_id=llm_model.llm_model_id,
                 encrypted_api_key=api_key,  # In production, encrypt this
                 is_active=True,
@@ -197,7 +196,7 @@ class DemoTenantSeeder:
 
             logger.info(
                 "tenant_llm_config_created",
-                tenant_id=self.tenant_id,
+                tenant_id=tenant_id,
                 model_id=model_id,
             )
             print(f"  ✅ Created LLM Configuration: {model_id}")
@@ -209,31 +208,31 @@ class DemoTenantSeeder:
             print(f"  ❌ Error creating LLM config: {str(e)}")
             return False
 
-    def create_widget_config(self) -> bool:
+    def create_widget_config(self, tenant_id: str, tenant_config: Dict[str, Any]) -> bool:
         """Create widget configuration for tenant."""
         print("\n→ Creating Widget Configuration...")
 
         try:
-            if not self.tenant_id:
+            if not tenant_id:
                 print("  ⚠️  Skipping - tenant not created yet")
                 return True
 
-            widget_config_data = self.demo_config.get("widget_config", {})
+            widget_config_data = tenant_config.get("widget_config", {})
 
             # Check if already exists
             existing = self.db.query(WidgetConfig).filter(
-                WidgetConfig.tenant_id == self.tenant_id
+                WidgetConfig.tenant_id == tenant_id
             ).first()
 
             if existing:
-                logger.info("widget_config_exists", tenant_id=self.tenant_id)
+                logger.info("widget_config_exists", tenant_id=tenant_id)
                 print("  ⊘ Widget config already exists")
                 return True
 
             # Create widget config
             widget_config = WidgetConfig(
                 widget_config_id=str(uuid.uuid4()),
-                tenant_id=self.tenant_id,
+                tenant_id=tenant_id,
                 theme=widget_config_data.get("theme", "light"),
                 primary_color=widget_config_data.get("primary_color", "#3B82F6"),
                 secondary_color=widget_config_data.get("secondary_color", "#10B981"),
@@ -246,7 +245,7 @@ class DemoTenantSeeder:
             self.db.add(widget_config)
             self.db.commit()
 
-            logger.info("widget_config_created", tenant_id=self.tenant_id)
+            logger.info("widget_config_created", tenant_id=tenant_id)
             print("  ✅ Created Widget Configuration")
             return True
 
@@ -256,16 +255,16 @@ class DemoTenantSeeder:
             print(f"  ❌ Error creating widget config: {str(e)}")
             return False
 
-    def grant_agent_permissions(self) -> bool:
+    def grant_agent_permissions(self, tenant_id: str, tenant_config: Dict[str, Any]) -> bool:
         """Grant agent permissions to tenant."""
         print("\n→ Granting Agent Permissions...")
 
         try:
-            if not self.tenant_id:
+            if not tenant_id:
                 print("  ⚠️  Skipping - tenant not created yet")
                 return True
 
-            enabled_agents = self.demo_config.get("enabled_agents", [])
+            enabled_agents = tenant_config.get("enabled_agents", [])
 
             if not enabled_agents:
                 print("  ⊘ No agents specified")
@@ -284,7 +283,7 @@ class DemoTenantSeeder:
 
                 # Check if permission already exists
                 existing = self.db.query(TenantAgentPermission).filter(
-                    TenantAgentPermission.tenant_id == self.tenant_id,
+                    TenantAgentPermission.tenant_id == tenant_id,
                     TenantAgentPermission.agent_config_id == agent.agent_config_id,
                 ).first()
 
@@ -296,7 +295,7 @@ class DemoTenantSeeder:
                 # Create permission
                 permission = TenantAgentPermission(
                     tenant_agent_permission_id=str(uuid.uuid4()),
-                    tenant_id=self.tenant_id,
+                    tenant_id=tenant_id,
                     agent_config_id=agent.agent_config_id,
                     is_enabled=True,
                     created_at=datetime.utcnow(),
@@ -315,16 +314,16 @@ class DemoTenantSeeder:
             print(f"  ❌ Error granting agent permissions: {str(e)}")
             return False
 
-    def grant_tool_permissions(self) -> bool:
+    def grant_tool_permissions(self, tenant_id: str, tenant_config: Dict[str, Any]) -> bool:
         """Grant tool permissions to tenant."""
         print("\n→ Granting Tool Permissions...")
 
         try:
-            if not self.tenant_id:
+            if not tenant_id:
                 print("  ⚠️  Skipping - tenant not created yet")
                 return True
 
-            enabled_tools = self.demo_config.get("enabled_tools", [])
+            enabled_tools = tenant_config.get("enabled_tools", [])
 
             if not enabled_tools:
                 print("  ⊘ No tools specified")
@@ -343,7 +342,7 @@ class DemoTenantSeeder:
 
                 # Check if permission already exists
                 existing = self.db.query(TenantToolPermission).filter(
-                    TenantToolPermission.tenant_id == self.tenant_id,
+                    TenantToolPermission.tenant_id == tenant_id,
                     TenantToolPermission.tool_config_id == tool.tool_config_id,
                 ).first()
 
@@ -355,7 +354,7 @@ class DemoTenantSeeder:
                 # Create permission
                 permission = TenantToolPermission(
                     tenant_tool_permission_id=str(uuid.uuid4()),
-                    tenant_id=self.tenant_id,
+                    tenant_id=tenant_id,
                     tool_config_id=tool.tool_config_id,
                     is_enabled=True,
                     created_at=datetime.utcnow(),
@@ -374,12 +373,12 @@ class DemoTenantSeeder:
             print(f"  ❌ Error granting tool permissions: {str(e)}")
             return False
 
-    def setup_rag_collection(self) -> bool:
+    def setup_rag_collection(self, tenant_id: str) -> bool:
         """Setup RAG knowledge base collection for tenant."""
         print("\n→ Setting Up RAG Collection...")
 
         try:
-            if not self.tenant_id:
+            if not tenant_id:
                 print("  ⚠️  Skipping - tenant not created yet")
                 return True
 
@@ -390,18 +389,18 @@ class DemoTenantSeeder:
             # Create RAG collection
             rag_service = get_rag_service()
             result = rag_service.create_tenant_collection(
-                tenant_id=self.tenant_id,
+                tenant_id=tenant_id,
                 metadata={"created_by": "setup_script"},
             )
 
             if result.get("success"):
-                logger.info("rag_collection_created", tenant_id=self.tenant_id)
+                logger.info("rag_collection_created", tenant_id=tenant_id)
                 print(f"  ✅ Created RAG Collection")
                 return True
             else:
                 logger.error(
                     "rag_collection_creation_failed",
-                    tenant_id=self.tenant_id,
+                    tenant_id=tenant_id,
                     error=result.get("error"),
                 )
                 print(f"  ❌ Error creating RAG collection: {result.get('error')}")
@@ -413,36 +412,57 @@ class DemoTenantSeeder:
             return False
 
     def run(self) -> bool:
-        """Run all demo tenant setup steps."""
+        """Run all demo tenant setup steps for all tenants in config."""
         print("\n" + "=" * 60)
-        print("Seeding Demo Tenant")
+        print("Seeding Demo Tenants")
         print("=" * 60)
 
+        overall_success = True
         try:
-            if not self.demo_config.get("enabled", True):
-                print("\n⊘ Demo tenant creation is disabled in config")
+            if not self.demo_tenants:
+                print("\n⊘ No demo tenants defined in config")
                 return True
 
-            success = True
-            success &= self.create_tenant()
-            success &= self.create_llm_config()
-            success &= self.create_widget_config()
-            success &= self.grant_agent_permissions()
-            success &= self.grant_tool_permissions()
-            success &= self.setup_rag_collection()
+            for tenant_config in self.demo_tenants:
+                if not tenant_config.get("enabled", True):
+                    print(f"\n⊘ Tenant '{tenant_config.get('tenant_info', {}).get('name')}' is disabled in config, skipping.")
+                    continue
 
-            if success and self.tenant_id:
-                print("\n" + "=" * 60)
-                print("Demo Tenant Setup Complete")
-                print("=" * 60)
-                print(f"✅ Tenant ID: {self.tenant_id}")
+                print("\n" + "-" * 60)
+                print(f"Processing Tenant: {tenant_config.get('tenant_info', {}).get('name')}")
+                print("-" * 60)
+
+                tenant_id = self.create_tenant(tenant_config)
+                
+                if tenant_id:
+                    success = True
+                    success &= self.create_llm_config(tenant_id, tenant_config)
+                    success &= self.create_widget_config(tenant_id, tenant_config)
+                    success &= self.grant_agent_permissions(tenant_id, tenant_config)
+                    success &= self.grant_tool_permissions(tenant_id, tenant_config)
+                    success &= self.setup_rag_collection(tenant_id)
+
+                    if success:
+                        print("\n" + "=" * 60)
+                        print(f"Demo Tenant '{tenant_config.get('tenant_info', {}).get('name')}' Setup Complete")
+                        print("=" * 60)
+                        print(f"✅ Tenant ID: {tenant_id}")
+                    else:
+                        print(f"\n⚠️  Tenant '{tenant_config.get('tenant_info', {}).get('name')}' setup completed with warnings/errors")
+                        overall_success = False
+                else:
+                    overall_success = False
+
+            print("\n" + "=" * 60)
+            print("Finished Processing All Tenants")
+            print("=" * 60)
+            
+            if overall_success:
                 print(f"\nNext steps:")
-                print(f"  1. Ingest PDF documents: python setup/ingest_demo_pdfs.py")
-                print(f"  2. Test via API: GET /api/chat/sessions?tenant_id={self.tenant_id}")
-                return True
-            else:
-                print("\n⚠️  Demo tenant setup completed with warnings/errors")
-                return False
+                print(f"  1. Ingest documents: python setup/ingest_demo_docs.py")
+                print(f"  2. Test via API using the tenant IDs provided above.")
+            
+            return overall_success
 
         except Exception as e:
             logger.error("demo_tenant_seeding_failed", error=str(e))

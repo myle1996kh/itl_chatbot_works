@@ -52,6 +52,17 @@ class DocumentProcessor:
         ]
 
         # Initialize text splitter
+        self._init_splitter()
+
+        logger.info(
+            "document_processor_initialized",
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            overlap_percentage=f"{(chunk_overlap/chunk_size)*100:.1f}%"
+        )
+
+    def _init_splitter(self):
+        """Initialize text splitter with current config."""
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
@@ -60,11 +71,35 @@ class DocumentProcessor:
             is_separator_regex=False
         )
 
+    def update_config(
+        self,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+        separators: Optional[List[str]] = None
+    ):
+        """
+        Update processor config dynamically.
+
+        Args:
+            chunk_size: New chunk size (optional)
+            chunk_overlap: New chunk overlap (optional)
+            separators: New separators (optional)
+        """
+        if chunk_size is not None:
+            self.chunk_size = chunk_size
+        if chunk_overlap is not None:
+            self.chunk_overlap = chunk_overlap
+        if separators is not None:
+            self.separators = separators
+
+        # Reinitialize splitter with new config
+        self._init_splitter()
+
         logger.info(
-            "document_processor_initialized",
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            overlap_percentage=f"{(chunk_overlap/chunk_size)*100:.1f}%"
+            "document_processor_config_updated",
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            overlap_percentage=f"{(self.chunk_overlap/self.chunk_size)*100:.1f}%"
         )
 
     def load_pdf(self, pdf_path: str) -> List[Document]:

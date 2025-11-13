@@ -2,11 +2,11 @@
 import uuid
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Body
 from sqlalchemy.orm import Session
 from src.config import get_db
 from src.models.session import ChatSession
-from src.models.supporter import Supporter
+## Supporter model removed; using User for assignment
 from src.models.tenant import Tenant
 from src.models.user import User
 from src.schemas.admin import (
@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 
 class CreateSupporterRequest(BaseModel):
     """Create a new supporter from an existing user."""
-    user_id: str  # UUID of existing user with role='staff'
+    user_id: str  # UUID of existing user with role='supporter'
     max_concurrent_sessions: OptionalType[int] = 5
 
 
@@ -137,9 +137,9 @@ async def detect_auto_escalation(
 )
 async def escalate_session(
     tenant_id: str = Path(..., description="UUID of the tenant"),
-    request: EscalationRequest = None,
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin_role),
+    request: EscalationRequest = Body(...),
 ) -> EscalationResponse:
     """
     Escalate a chat session to require human support.
@@ -193,12 +193,12 @@ async def escalate_session(
         ).first()
 
         return EscalationResponse(
-            session_id=session.session_id,
-            tenant_id=session.tenant_id,
-            user_id=session.user_id,
+            session_id=str(session.session_id),
+            tenant_id=str(session.tenant_id),
+            user_id=str(session.user_id) if session.user_id else None,
             escalation_status=session.escalation_status,
             escalation_reason=session.escalation_reason,
-            assigned_supporter_id=session.assigned_supporter_id,
+            assigned_user_id=str(session.assigned_user_id) if session.assigned_user_id else None,
             escalation_requested_at=session.escalation_requested_at,
             escalation_assigned_at=session.escalation_assigned_at,
             created_at=session.created_at,
@@ -230,19 +230,19 @@ async def escalate_session(
 )
 async def assign_supporter(
     tenant_id: str = Path(..., description="UUID of the tenant"),
-    request: EscalationAssignRequest = None,
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin_role),
+    request: EscalationAssignRequest = Body(...),
 ) -> EscalationResponse:
     """
-    Assign a supporter to an escalated session.
+    Assign a staff user to an escalated session.
 
     Changes escalation status from 'pending' to 'assigned' and associates
     the session with a specific supporter.
 
     Args:
         tenant_id: UUID of the tenant
-        request: EscalationAssignRequest with session_id and supporter_id
+        request: EscalationAssignRequest with session_id and user_id
         db: Database session
         admin_payload: JWT payload with admin role
 
@@ -259,24 +259,24 @@ async def assign_supporter(
             logger.warning("assign_supporter_invalid_tenant", tenant_id=tenant_id)
             raise HTTPException(status_code=404, detail="Tenant not found")
 
-        # Assign the supporter
-        result = escalation_service.assign_supporter(
+        # Assign the user
+        result = escalation_service.assign_user(
             db=db,
             session_id=request.session_id,
             tenant_id=tenant_id,
-            supporter_id=request.supporter_id
+            user_id=request.user_id
         )
 
         if not result["success"]:
             logger.warning(
-                "assign_supporter_failed",
+                "assign_user_failed",
                 session_id=request.session_id,
-                supporter_id=request.supporter_id,
+                user_id=request.user_id,
                 reason=result.get("error")
             )
             raise HTTPException(
                 status_code=400,
-                detail=result.get("error", "Failed to assign supporter")
+                detail=result.get("error", "Failed to assign user")
             )
 
         # Fetch and return the escalation response
@@ -285,12 +285,12 @@ async def assign_supporter(
         ).first()
 
         return EscalationResponse(
-            session_id=session.session_id,
-            tenant_id=session.tenant_id,
-            user_id=session.user_id,
+            session_id=str(session.session_id),
+            tenant_id=str(session.tenant_id),
+            user_id=str(session.user_id) if session.user_id else None,
             escalation_status=session.escalation_status,
             escalation_reason=session.escalation_reason,
-            assigned_supporter_id=session.assigned_supporter_id,
+            assigned_user_id=str(session.assigned_user_id) if session.assigned_user_id else None,
             escalation_requested_at=session.escalation_requested_at,
             escalation_assigned_at=session.escalation_assigned_at,
             created_at=session.created_at,
@@ -300,13 +300,13 @@ async def assign_supporter(
         raise
     except Exception as e:
         logger.error(
-            "assign_supporter_error",
+            "assign_user_error",
             tenant_id=tenant_id,
             error=str(e)
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to assign supporter: {str(e)}"
+            detail=f"Failed to assign user: {str(e)}"
         )
 
 
@@ -322,9 +322,9 @@ async def assign_supporter(
 )
 async def resolve_escalation(
     tenant_id: str = Path(..., description="UUID of the tenant"),
-    request: EscalationResolveRequest = None,
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin_role),
+    request: EscalationResolveRequest = Body(...),
 ) -> EscalationResponse:
     """
     Mark an escalation as resolved.
@@ -376,12 +376,12 @@ async def resolve_escalation(
         ).first()
 
         return EscalationResponse(
-            session_id=session.session_id,
-            tenant_id=session.tenant_id,
-            user_id=session.user_id,
+            session_id=str(session.session_id),
+            tenant_id=str(session.tenant_id),
+            user_id=str(session.user_id) if session.user_id else None,
             escalation_status=session.escalation_status,
             escalation_reason=session.escalation_reason,
-            assigned_supporter_id=session.assigned_supporter_id,
+            assigned_user_id=str(session.assigned_user_id) if session.assigned_user_id else None,
             escalation_requested_at=session.escalation_requested_at,
             escalation_assigned_at=session.escalation_assigned_at,
             created_at=session.created_at,
@@ -471,7 +471,7 @@ async def get_escalation_queue(
                 user_id=esc.user_id,
                 escalation_status=esc.escalation_status,
                 escalation_reason=esc.escalation_reason,
-                assigned_supporter_id=esc.assigned_supporter_id,
+                assigned_user_id=esc.assigned_user_id,
                 escalation_requested_at=esc.escalation_requested_at,
                 escalation_assigned_at=esc.escalation_assigned_at,
                 created_at=esc.created_at,
@@ -506,19 +506,17 @@ async def get_escalation_queue(
 
 
 @router.get(
-    "/tenants/{tenant_id}/supporters",
+    "/tenants/{tenant_id}/staff",
     status_code=200
 )
-async def get_supporters(
+async def get_staff(
     tenant_id: str = Path(..., description="UUID of the tenant"),
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin_role),
 ):
     """
     Get list of supporters for a tenant.
-
-    Returns all supporters assigned to the tenant. Useful for UI dropdowns
-    when assigning supporters to escalated sessions.
+    Returns all supporters eligible for escalation assignment.
 
     Args:
         tenant_id: UUID of the tenant
@@ -535,47 +533,118 @@ async def get_supporters(
         # Verify tenant exists
         tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
         if not tenant:
-            logger.warning("get_supporters_invalid_tenant", tenant_id=tenant_id)
+            logger.warning("get_staff_invalid_tenant", tenant_id=tenant_id)
             raise HTTPException(status_code=404, detail="Tenant not found")
 
-        # Get supporters
-        supporters = db.query(Supporter).filter(
-            Supporter.tenant_id == tenant_id
+        staff = db.query(User).filter(
+            User.tenant_id == tenant_id,
+            User.role == 'supporter'
         ).all()
 
-        logger.debug(
-            "supporters_retrieved",
-            tenant_id=tenant_id,
-            count=len(supporters)
-        )
+        logger.debug("staff_retrieved", tenant_id=tenant_id, count=len(staff))
 
         return {
             "success": True,
-            "supporters": [
+            "staff": [
                 {
-                    "supporter_id": s.supporter_id,
-                    "email": s.email,
-                    "username": s.username,
-                    "display_name": s.display_name,
-                    "status": s.status,
-                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                    "user_id": str(u.user_id),
+                    "email": u.email,
+                    "username": u.username,
+                    "display_name": u.display_name,
+                    "supporter_status": u.supporter_status,
+                    "max_concurrent_sessions": u.max_concurrent_sessions,
+                    "current_sessions_count": u.current_sessions_count,
+                    "available": u.supporter_status in ['online', 'available'] and u.current_sessions_count < u.max_concurrent_sessions,
+                    "created_at": u.created_at.isoformat() if u.created_at else None,
                 }
-                for s in supporters
+                for u in staff
             ],
-            "total": len(supporters),
+            "total": len(staff),
         }
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(
-            "get_supporters_error",
+            "get_staff_error",
             tenant_id=tenant_id,
             error=str(e)
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get supporters: {str(e)}"
+            detail=f"Failed to get staff: {str(e)}"
+        )
+
+
+@router.get(
+    "/tenants/{tenant_id}/staff/available",
+    status_code=200
+)
+async def get_available_staff(
+    tenant_id: str = Path(..., description="UUID of the tenant"),
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+):
+    """
+    Get list of available supporters for a tenant.
+
+    Returns only supporters who are:
+    - Online or available
+    - Not at capacity (current_sessions_count < max_concurrent_sessions)
+
+    Args:
+        tenant_id: UUID of the tenant
+        db: Database session
+        admin_payload: JWT payload with admin role
+
+    Returns:
+        List of available staff, sorted by current session count (ascending)
+
+    Raises:
+        HTTPException: If tenant not found
+    """
+    try:
+        # Verify tenant exists
+        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
+        if not tenant:
+            logger.warning("get_available_staff_invalid_tenant", tenant_id=tenant_id)
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        # Get available staff using service
+        available_staff = escalation_service.find_available_staff(db, tenant_id)
+
+        logger.debug("available_staff_retrieved", tenant_id=tenant_id, count=len(available_staff))
+
+        return {
+            "success": True,
+            "available_staff": [
+                {
+                    "user_id": str(u.user_id),
+                    "email": u.email,
+                    "username": u.username,
+                    "display_name": u.display_name,
+                    "supporter_status": u.supporter_status,
+                    "max_concurrent_sessions": u.max_concurrent_sessions,
+                    "current_sessions_count": u.current_sessions_count,
+                    "capacity_percentage": int((u.current_sessions_count / u.max_concurrent_sessions) * 100),
+                    "created_at": u.created_at.isoformat() if u.created_at else None,
+                }
+                for u in available_staff
+            ],
+            "total": len(available_staff),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "get_available_staff_error",
+            tenant_id=tenant_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get available staff: {str(e)}"
         )
 
 
@@ -594,101 +663,8 @@ async def create_supporter(
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin_role),
 ):
-    """
-    Create a new supporter for a tenant.
-
-    Creates a Supporter record linked to an existing User with role='staff'.
-
-    Args:
-        tenant_id: Tenant UUID
-        request: CreateSupporterRequest with user_id and max_concurrent_sessions
-        db: Database session
-        admin_payload: JWT payload with admin role
-
-    Returns:
-        Created supporter data
-
-    Raises:
-        HTTPException: If user not found, user not staff, or supporter already exists
-    """
-    try:
-        # Verify tenant exists
-        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
-        if not tenant:
-            raise HTTPException(status_code=404, detail="Tenant not found")
-
-        # Verify user exists and is staff role
-        user = db.query(User).filter(User.user_id == request.user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        if user.role != 'staff':
-            raise HTTPException(
-                status_code=400,
-                detail=f"User must have 'staff' role, but has '{user.role}'"
-            )
-
-        # Check if supporter already exists for this user
-        existing = db.query(Supporter).filter(
-            Supporter.user_id == request.user_id
-        ).first()
-        if existing:
-            raise HTTPException(
-                status_code=400,
-                detail="Supporter already exists for this user"
-            )
-
-        # Create new supporter
-        supporter = Supporter(
-            supporter_id=str(uuid.uuid4()),
-            user_id=request.user_id,
-            tenant_id=tenant_id,
-            status='offline',
-            max_concurrent_sessions=request.max_concurrent_sessions or 5,
-            current_sessions_count=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
-        )
-
-        db.add(supporter)
-        db.commit()
-        db.refresh(supporter)
-
-        logger.info(
-            "supporter_created",
-            tenant_id=tenant_id,
-            supporter_id=str(supporter.supporter_id),
-            user_id=str(request.user_id)
-        )
-
-        return {
-            "success": True,
-            "supporter": {
-                "supporter_id": str(supporter.supporter_id),
-                "user_id": str(supporter.user_id),
-                "tenant_id": str(supporter.tenant_id),
-                "email": user.email,
-                "username": user.username,
-                "display_name": user.display_name,
-                "status": supporter.status,
-                "max_concurrent_sessions": supporter.max_concurrent_sessions,
-                "current_sessions_count": supporter.current_sessions_count,
-                "created_at": supporter.created_at.isoformat() if supporter.created_at else None,
-            }
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            "create_supporter_error",
-            tenant_id=tenant_id,
-            error=str(e)
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create supporter: {str(e)}"
-        )
+    """Deprecated: supporters removed. Use staff user management."""
+    raise HTTPException(status_code=410, detail="Supporter API deprecated. Use staff users.")
 
 
 @router.put(
@@ -703,100 +679,8 @@ async def update_supporter(
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin_role),
 ):
-    """
-    Update supporter settings.
-
-    Args:
-        tenant_id: Tenant UUID
-        supporter_id: Supporter UUID
-        request: UpdateSupporterRequest with fields to update
-        db: Database session
-        admin_payload: JWT payload with admin role
-
-    Returns:
-        Updated supporter data
-
-    Raises:
-        HTTPException: If supporter not found or invalid status
-    """
-    try:
-        # Verify tenant exists
-        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
-        if not tenant:
-            raise HTTPException(status_code=404, detail="Tenant not found")
-
-        # Get supporter
-        supporter = db.query(Supporter).filter(
-            Supporter.supporter_id == supporter_id,
-            Supporter.tenant_id == tenant_id
-        ).first()
-
-        if not supporter:
-            raise HTTPException(status_code=404, detail="Supporter not found")
-
-        # Validate status if provided
-        if request.status:
-            valid_statuses = ['online', 'offline', 'busy', 'away']
-            if request.status not in valid_statuses:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
-                )
-            supporter.status = request.status
-
-        # Update max_concurrent_sessions if provided
-        if request.max_concurrent_sessions is not None:
-            if request.max_concurrent_sessions < 1:
-                raise HTTPException(
-                    status_code=400,
-                    detail="max_concurrent_sessions must be >= 1"
-                )
-            supporter.max_concurrent_sessions = request.max_concurrent_sessions
-
-        supporter.updated_at = datetime.utcnow()
-
-        db.add(supporter)
-        db.commit()
-        db.refresh(supporter)
-
-        # Get user info for response
-        user = db.query(User).filter(User.user_id == supporter.user_id).first()
-
-        logger.info(
-            "supporter_updated",
-            tenant_id=tenant_id,
-            supporter_id=supporter_id
-        )
-
-        return {
-            "success": True,
-            "supporter": {
-                "supporter_id": str(supporter.supporter_id),
-                "user_id": str(supporter.user_id),
-                "tenant_id": str(supporter.tenant_id),
-                "email": user.email if user else None,
-                "username": user.username if user else None,
-                "display_name": user.display_name if user else None,
-                "status": supporter.status,
-                "max_concurrent_sessions": supporter.max_concurrent_sessions,
-                "current_sessions_count": supporter.current_sessions_count,
-                "updated_at": supporter.updated_at.isoformat() if supporter.updated_at else None,
-            }
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            "update_supporter_error",
-            tenant_id=tenant_id,
-            supporter_id=supporter_id,
-            error=str(e)
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update supporter: {str(e)}"
-        )
+    """Deprecated: supporters removed. Use staff user management."""
+    raise HTTPException(status_code=410, detail="Supporter API deprecated. Use staff users.")
 
 
 @router.delete(
@@ -810,68 +694,5 @@ async def delete_supporter(
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin_role),
 ):
-    """
-    Delete a supporter.
-
-    Args:
-        tenant_id: Tenant UUID
-        supporter_id: Supporter UUID
-        db: Database session
-        admin_payload: JWT payload with admin role
-
-    Returns:
-        Success message
-
-    Raises:
-        HTTPException: If supporter not found or has active sessions
-    """
-    try:
-        # Verify tenant exists
-        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
-        if not tenant:
-            raise HTTPException(status_code=404, detail="Tenant not found")
-
-        # Get supporter
-        supporter = db.query(Supporter).filter(
-            Supporter.supporter_id == supporter_id,
-            Supporter.tenant_id == tenant_id
-        ).first()
-
-        if not supporter:
-            raise HTTPException(status_code=404, detail="Supporter not found")
-
-        # Check if supporter has active sessions
-        if supporter.current_sessions_count > 0:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot delete supporter with {supporter.current_sessions_count} active sessions"
-            )
-
-        # Delete supporter
-        db.delete(supporter)
-        db.commit()
-
-        logger.info(
-            "supporter_deleted",
-            tenant_id=tenant_id,
-            supporter_id=supporter_id
-        )
-
-        return {
-            "success": True,
-            "detail": f"Supporter {supporter_id} deleted successfully"
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            "delete_supporter_error",
-            tenant_id=tenant_id,
-            supporter_id=supporter_id,
-            error=str(e)
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to delete supporter: {str(e)}"
-        )
+    """Deprecated: supporters removed. Use staff user management."""
+    raise HTTPException(status_code=410, detail="Supporter API deprecated. Use staff users.")

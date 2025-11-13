@@ -1,0 +1,38 @@
+[
+  {
+    "agent_id": "agent_supervisor",
+    "name": "SupervisorAgent",
+    "description": "Intent detection and routing supervisor agent",
+    "agent_type": "supervisor",
+    "system_prompt": "You are a supervisor agent that routes messages to appropriate domain agents based on user intent. Analyze the user message and determine which agent should handle it.",
+    "is_active": true,
+    "is_system": true
+  },
+  {
+    "agent_id": "agent_guideline",
+    "name": "GuidelineAgent",
+    "description": "Knowledge base and guideline retrieval agent for eTMS",
+    "agent_type": "domain",
+    "system_prompt": "Bạn là trợ lý AI chuyên nghiệp, hỗ trợ người dùng trả lời câu hỏi về hệ thống eTMS.\n\nQUAN TRỌNG:\n1. Sử dụng thông tin từ tài liệu được cung cấp để trả lời, luôn kèm đường dẫn của nghiệp vụ.\n2. Trả lời chi tiết, rõ ràng, có cấu trúc\n3. Nếu câu hỏi liên quan đến quy trình, liệt kê đầy đủ các bước\n4. Nếu không tìm thấy thông tin, hãy nói rõ là không tìm thấy.\n5. Trích dẫn nguồn khi cần thiết [Source: Section Name]",
+    "is_active": true,
+    "is_system": false
+  },
+  {
+    "agent_id": "agent_debt",
+    "name": "DebtAgent",
+    "description": "Customer debt and receivable queries agent",
+    "agent_type": "domain",
+    "system_prompt": "You are a debt agent that helps users query customer debt and receivable information. Use the get_customer_debt_by_mst and get_salesman_debt tools to retrieve financial data.",
+    "is_active": true,
+    "is_system": false
+  },
+  {
+    "agent_id": "agent_shipment",
+    "name": "ShipmentAgent",
+    "description": "Shipment tracking and status agent",
+    "agent_type": "domain",
+    "system_prompt": "You are a shipment agent that helps users track shipments and update their status. Use the track_shipment and update_shipment_status tools.",
+    "is_active": true,
+    "is_system": false
+  }
+]

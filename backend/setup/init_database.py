@@ -26,7 +26,7 @@ import argparse
 import time
 import yaml
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 # Add backend to path so we can import from src
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -72,13 +72,14 @@ class DatabaseInitializer:
             logger.error("config_load_failed", error=str(e))
             raise
 
-    def _run_command(self, command: list, description: str) -> bool:
+    def _run_command(self, command: list, description: str, cwd_arg: Optional[Union[str, Path]] = None) -> bool:
         """
         Run a shell command and capture output.
 
         Args:
             command: Command as list (e.g., ['python', 'script.py'])
             description: Human-readable description
+            cwd_arg: Optional current working directory for the command (string or Path).
 
         Returns:
             True if successful, False otherwise
@@ -88,12 +89,15 @@ class DatabaseInitializer:
             if self.verbose:
                 print(f"\n→ Running: {' '.join(command)}")
 
+            actual_cwd = str(cwd_arg) if cwd_arg else str(self.project_root)
+
             result = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
-                cwd=self.project_root,
+                cwd=actual_cwd,
                 timeout=300,  # 5 minutes max
+                check=False # Do not raise CalledProcessError for non-zero exit codes
             )
 
             if result.returncode != 0:
@@ -101,9 +105,13 @@ class DatabaseInitializer:
                     "command_failed",
                     description=description,
                     stderr=result.stderr,
+                    stdout=result.stdout, # Also log stdout on failure
+                    returncode=result.returncode
                 )
-                print(f"❌ {description} FAILED")
-                if self.verbose:
+                print(f"❌ {description} FAILED (Exit Code: {result.returncode})")
+                if result.stdout:
+                    print(f"STDOUT:\n{result.stdout}")
+                if result.stderr:
                     print(f"STDERR:\n{result.stderr}")
                 self.failed_steps.append(description)
                 return False
@@ -138,8 +146,9 @@ class DatabaseInitializer:
             )
 
         success = self._run_command(
-            ["alembic", "upgrade", "head"],
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
             "Run Alembic migrations",
+            cwd_arg=str(self.project_root / "backend")
         )
 
         if success:
@@ -203,35 +212,35 @@ class DatabaseInitializer:
         """Step 4: Ingest PDF documents (optional)."""
         if not self.config.get("rag", {}).get("enabled", False):
             print("\n" + "=" * 60)
-            print("STEP 4: PDF Ingestion (SKIPPED)")
+            print("STEP 4: Document Ingestion (SKIPPED)")
             print("=" * 60)
             print("RAG is disabled in config")
             return True
 
-        if not self.config.get("demo_tenant", {}).get("enabled", False):
+        if not self.config.get("demo_tenants", []):
             print("\n" + "=" * 60)
-            print("STEP 4: PDF Ingestion (SKIPPED)")
+            print("STEP 4: Document Ingestion (SKIPPED)")
             print("=" * 60)
-            print("Demo tenant is disabled - nothing to ingest into")
+            print("No demo tenants defined - nothing to ingest into")
             return True
 
         print("\n" + "=" * 60)
-        print("STEP 4: Ingesting Sample PDF Documents")
+        print("STEP 4: Ingesting Sample Documents")
         print("=" * 60)
 
         success = self._run_command(
             [
                 sys.executable,
-                "setup/ingest_demo_pdfs.py",
+                "setup/ingest_demo_docs.py",
                 "--config",
                 str(self.config_path),
             ],
-            "Ingest sample PDF documents",
+            "Ingest sample documents",
         )
 
         if success:
-            logger.info("pdfs_ingested")
-            print("\n✅ PDF documents ingested successfully")
+            logger.info("docs_ingested")
+            print("\n✅ Documents ingested successfully")
 
         return success
 

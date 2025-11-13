@@ -186,6 +186,64 @@ class BaseDataSeeder:
             self.stats["errors"] += 1
             return False
 
+    def seed_tool_configs(self) -> bool:
+        """Seed tool configurations from config."""
+        print("\n→ Seeding Tool Configurations...")
+
+        try:
+            for tool_config_data in self.config.get("base_data", {}).get("tool_configs", []):
+                tool_config_id = tool_config_data.get("id")
+
+                # Check if already exists
+                existing = self.db.query(ToolConfig).filter(
+                    ToolConfig.tool_config_id == tool_config_id
+                ).first()
+
+                if existing:
+                    logger.debug(f"tool_config_exists", tool_config_id=tool_config_id)
+                    print(f"  ⊘ Tool Config '{tool_config_data.get('name')}' already exists")
+                    self.stats["skipped"] += 1
+                    continue
+
+                # Get BaseTool reference
+                base_tool_id = tool_config_data.get("base_tool_id")
+                base_tool = self.db.query(BaseTool).filter(
+                    BaseTool.base_tool_id == base_tool_id
+                ).first()
+
+                if not base_tool:
+                    logger.error(
+                        "tool_config_base_tool_not_found",
+                        tool_config_id=tool_config_id,
+                        base_tool_id=base_tool_id,
+                    )
+                    print(f"  ❌ Tool Config '{tool_config_data.get('name')}': Base tool not found")
+                    self.stats["errors"] += 1
+                    continue
+
+                # Create new tool config
+                tool_config = ToolConfig(
+                    tool_config_id=tool_config_id,
+                    name=tool_config_data.get("name"),
+                    base_tool_id=base_tool.base_tool_id,
+                    config=tool_config_data.get("config", {}),
+                    is_active=tool_config_data.get("is_active", True),
+                )
+                self.db.add(tool_config)
+                logger.info("tool_config_created", tool_config_id=tool_config_id)
+                print(f"  ✅ Created Tool Config: {tool_config_data.get('name')}")
+                self.stats["created"] += 1
+
+            self.db.commit()
+            return True
+
+        except Exception as e:
+            logger.error("seed_tool_configs_failed", error=str(e))
+            self.db.rollback()
+            print(f"  ❌ Error seeding tool configs: {str(e)}")
+            self.stats["errors"] += 1
+            return False
+
     def seed_agents(self) -> bool:
         """Seed agent configurations from config."""
         print("\n→ Seeding Agent Configurations...")
@@ -257,6 +315,7 @@ class BaseDataSeeder:
             success &= self.seed_llm_models()
             success &= self.seed_output_formats()
             success &= self.seed_base_tools()
+            success &= self.seed_tool_configs()
             success &= self.seed_agents()
 
             print("\n" + "=" * 60)

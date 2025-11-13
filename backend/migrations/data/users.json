@@ -1,0 +1,11 @@
+[
+  {"email": "admin@eTMS.local", "username": "admin_etms", "role": "admin", "tenant_name": "eTMS"},
+  {"email": "admin@eFMS.local", "username": "admin_efms", "role": "admin", "tenant_name": "eFMS"},
+  {"email": "admin@vela.local", "username": "admin_vela", "role": "admin", "tenant_name": "Vela"},
+  {"email": "support_guideline@eTMS.local", "username": "support_guideline_etms", "role": "supporter", "tenant_name": "eTMS"},
+  {"email": "support_supervisor@eTMS.local", "username": "support_supervisor_etms", "role": "supporter", "tenant_name": "eTMS"},
+  {"email": "support_debt@eFMS.local", "username": "support_debt_efms", "role": "supporter", "tenant_name": "eFMS"},
+  {"email": "support_shipment@eFMS.local", "username": "support_shipment_efms", "role": "supporter", "tenant_name": "eFMS"},
+  {"email": "support_guideline@eFMS.local", "username": "support_guideline_efms", "role": "supporter", "tenant_name": "eFMS"},
+  {"email": "support_general@vela.local", "username": "support_general_vela", "role": "supporter", "tenant_name": "Vela"}
+]

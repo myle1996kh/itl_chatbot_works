@@ -1,0 +1,17 @@
+# Database Migration & Seeding Requirements
+# Used by migration scripts to seed data into ITL_PGVector database
+
+# Core Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.13.0
+
+# Cryptography (for API key encryption)
+cryptography==41.0.7
+
+# Data handling
+pydantic==2.5.0
+
+# Utilities
+python-dotenv==1.0.0
+bcrypt==4.1.1

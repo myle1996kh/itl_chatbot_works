@@ -11,6 +11,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000, description="User message content")
     user_id: str = Field(default="default_user", description="User identifier (external user ID from auth system)")
     session_id: Optional[str] = Field(default=None, description="Optional: Existing session UUID for follow-up messages. If not provided, a new session will be created automatically.")
+    agent_name: Optional[str] = Field(default=None, description="Optional: Agent name to route to directly (e.g., 'GuidelineAgent'). If provided, skips SupervisorAgent and routes directly to this agent. If not provided, uses SupervisorAgent for intent detection.")
     metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata (e.g., jwt_token for external API calls)")
 
 

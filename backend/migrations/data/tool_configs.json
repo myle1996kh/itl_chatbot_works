@@ -1,0 +1,145 @@
+[
+  {
+    "tool_config_id": "config_search_knowledge_base",
+    "base_tool_id": "tool_base_rag",
+    "name": "search_knowledge_base",
+    "description": "Search the knowledge base for relevant documents using semantic similarity",
+    "tool_type": "rag",
+    "is_active": true,
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query text"
+        },
+        "top_k": {
+          "type": "integer",
+          "description": "Number of top results to return",
+          "default": 3
+        }
+      },
+      "required": ["query"]
+    },
+    "config": {
+      "similarity_threshold": 0.5,
+      "embedding_model": "all-MiniLM-L6-v2"
+    }
+  },
+  {
+    "tool_config_id": "config_get_customer_debt_by_mst",
+    "base_tool_id": "tool_base_http_get",
+    "name": "get_customer_debt_by_mst",
+    "description": "Retrieve customer debt and receivable information by tax code from eFMS accounting system",
+    "tool_type": "http_get",
+    "is_active": true,
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "tax_code": {
+          "type": "string",
+          "description": "Customer tax code (MST)"
+        }
+      },
+      "required": ["tax_code"]
+    },
+    "config": {
+      "method": "GET",
+      "base_url": "https://uat-accounting-api-efms.logtechub.com",
+      "endpoint": "/api/v1/vi/AccountReceivable/GetReceivableByTaxCode/{tax_code}",
+      "timeout": 30,
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    }
+  },
+  {
+    "tool_config_id": "config_get_salesman_debt",
+    "base_tool_id": "tool_base_http_get",
+    "name": "get_salesman_debt",
+    "description": "Retrieve salesman debt and commission information from eFMS accounting system",
+    "tool_type": "http_get",
+    "is_active": true,
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "salesman": {
+          "type": "string",
+          "description": "Salesman code or ID"
+        }
+      },
+      "required": ["salesman"]
+    },
+    "config": {
+      "method": "GET",
+      "base_url": "https://uat-accounting-api-efms.logtechub.com",
+      "endpoint": "/api/v1/vi/AccountReceivable/GetReceivableBySalesman/{salesman}",
+      "timeout": 30,
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    }
+  },
+  {
+    "tool_config_id": "config_track_shipment",
+    "base_tool_id": "tool_base_http_get",
+    "name": "track_shipment",
+    "description": "Track shipment status and location information",
+    "tool_type": "http_get",
+    "is_active": true,
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "shipment_id": {
+          "type": "string",
+          "description": "Shipment ID or tracking number"
+        }
+      },
+      "required": ["shipment_id"]
+    },
+    "config": {
+      "method": "GET",
+      "base_url": "https://api.internal",
+      "endpoint": "/shipment/{shipment_id}",
+      "timeout": 30,
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    }
+  },
+  {
+    "tool_config_id": "config_update_shipment_status",
+    "base_tool_id": "tool_base_http_post",
+    "name": "update_shipment_status",
+    "description": "Update shipment status and tracking information",
+    "tool_type": "http_post",
+    "is_active": true,
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "shipment_id": {
+          "type": "string",
+          "description": "Shipment ID"
+        },
+        "status": {
+          "type": "string",
+          "description": "New status (pending, in_transit, delivered, failed)"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Status update notes"
+        }
+      },
+      "required": ["shipment_id", "status"]
+    },
+    "config": {
+      "method": "POST",
+      "base_url": "https://api.internal",
+      "endpoint": "/shipment/{shipment_id}/status",
+      "timeout": 30,
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    }
+  }
+]

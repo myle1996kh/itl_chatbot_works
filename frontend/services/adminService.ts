@@ -180,10 +180,11 @@ export async function getSupporters(
     }
 
     // Convert backend response to frontend Supporter format
+    // Backend payload does not include tenant_id per supporter, so use the requested tenantId
     return data.supporters.map(s => ({
       id: s.supporter_id,
       name: s.display_name,
-      tenantId: s.tenant_id,
+      tenantId: tenantId,
     }));
   } catch (error) {
     console.error(`Error fetching supporters for tenant ${tenantId}:`, error);

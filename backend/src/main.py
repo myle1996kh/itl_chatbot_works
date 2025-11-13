@@ -1,8 +1,18 @@
 """FastAPI application initialization."""
-from fastapi import FastAPI
+import sys
+from pathlib import Path
+
+# Add backend directory to Python path so imports work from any location
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import uuid
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from src.config import settings
 from src.utils.logging import configure_logging, get_logger
+from src.utils.exceptions import SecurityError
+import redis
 
 # Import ALL models to ensure SQLAlchemy relationships are properly registered
 # This must be done before any database operations
@@ -18,6 +28,10 @@ from src.models.tool import ToolConfig  # noqa: F401
 from src.models.agent import AgentConfig, AgentTools  # noqa: F401
 from src.models.permissions import TenantAgentPermission, TenantToolPermission  # noqa: F401
 from src.models.tenant_widget_config import TenantWidgetConfig  # noqa: F401
+from src.models.user import User  # noqa: F401
+
+# Import LLM manager to set up rate limiter
+from src.services.llm_manager import llm_manager
 
 # Configure logging
 configure_logging()
@@ -32,6 +46,28 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# Add middleware to handle OPTIONS requests explicitly (before CORS middleware)
+# This ensures CORS preflight requests are processed before any auth dependencies
+@app.middleware("http")
+async def handle_cors_preflight(request: Request, call_next):
+    """
+    Middleware to handle CORS preflight (OPTIONS) requests.
+    Returns 200 OK immediately without processing dependencies.
+    """
+    if request.method == "OPTIONS":
+        return JSONResponse(
+            status_code=200,
+            content={},
+            headers={
+                "Access-Control-Allow-Origin": request.headers.get("Origin", "*"),
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Max-Age": "3600",
+            }
+        )
+    return await call_next(request)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +76,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Exception Handlers
+@app.exception_handler(SecurityError)
+async def security_error_handler(request: Request, exc: SecurityError):
+    """Handle security violations.
+
+    Logs critical security events and returns generic error to prevent
+    information leakage to potential attackers.
+    """
+    incident_id = str(uuid.uuid4())
+
+    logger.critical(
+        "security_violation",
+        extra={
+            "incident_id": incident_id,
+            "error": str(exc),
+            "details": exc.details,
+            "path": request.url.path,
+            "method": request.method,
+        },
+    )
+
+    # Return generic error (don't leak details to client)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "A security policy violation occurred. This incident has been logged.",
+            "incident_id": incident_id,
+        },
+    )
 
 
 @app.on_event("startup")
@@ -51,6 +118,39 @@ async def startup_event():
         api_host=settings.API_HOST,
         api_port=settings.API_PORT,
     )
+
+    # Validate critical settings at startup
+    if settings.ENVIRONMENT == "production":
+        unsafe_settings = []
+
+        if settings.DISABLE_AUTH:
+            unsafe_settings.append("DISABLE_AUTH=true")
+
+        if not settings.JWT_PUBLIC_KEY:
+            unsafe_settings.append("JWT_PUBLIC_KEY not set")
+
+        if unsafe_settings:
+            logger.critical(
+                "Unsafe production configuration - SHUTTING DOWN",
+                extra={"unsafe_settings": unsafe_settings}
+            )
+            raise RuntimeError(
+                f"Unsafe production settings: {', '.join(unsafe_settings)}"
+            )
+
+    # Initialize rate limiter if Redis is configured
+    try:
+        if settings.REDIS_URL:
+            redis_client = redis.from_url(settings.REDIS_URL)
+            llm_manager.set_rate_limiter(redis_client)
+            logger.info("rate_limiter_initialized", redis_url=settings.REDIS_URL)
+    except Exception as e:
+        logger.error(
+            "rate_limiter_initialization_failed",
+            error=str(e),
+            redis_url=getattr(settings, 'REDIS_URL', 'not set')
+        )
+        # Continue without rate limiting - it's not critical for startup
 
 
 @app.on_event("shutdown")
@@ -80,19 +180,24 @@ async def root():
 
 
 # Import and include routers
-from src.api import chat, sessions
+from src.api import chat, sessions, auth
+
+# Authentication endpoints (Phase 0)
+app.include_router(auth.router, tags=["auth"])
 
 # Chat and session management endpoints (Phase 3)
 app.include_router(chat.router, tags=["chat"])
 app.include_router(sessions.router, tags=["sessions"])
 
 # Admin endpoints (Phase 4 & Phase 8)
-from src.api.admin import agents, tools, tenants, knowledge
+from src.api.admin import agents, tools, tenants, knowledge, escalation, sessions as admin_sessions
 
 app.include_router(agents.router, tags=["admin-agents"])
 app.include_router(tools.router, tags=["admin-tools"])
 app.include_router(tenants.router, tags=["admin-tenants"])
 app.include_router(knowledge.router, tags=["admin-knowledge"])
+app.include_router(escalation.router, tags=["admin-escalations"])
+app.include_router(admin_sessions.router, tags=["admin-sessions"])
 
 # Monitoring endpoints (will be added in Phase 11)
 # from src.api.admin import monitoring
@@ -101,9 +206,30 @@ app.include_router(knowledge.router, tags=["admin-knowledge"])
 
 if __name__ == "__main__":
     import uvicorn
+    # Limit auto-reload file watching to the backend src directory and
+    # exclude transient files that can cause spurious reloads on Windows
+    # (e.g., __pycache__, .venv, log files). This helps avoid constant
+    # restarts due to background tools touching files.
+    extra_kwargs = {}
+    if settings.ENVIRONMENT == "development":
+        extra_kwargs.update({
+            "reload": True,
+            "reload_dirs": [str(Path(__file__).parent)],  # backend/src
+            "reload_excludes": [
+                "**/__pycache__/*",
+                "**/*.pyc",
+                "**/*.pyo",
+                "**/*.log",
+                "venv/*",
+                ".venv/*",
+                ".pytest_cache/*",
+            ],
+            "reload_delay": 0.5,
+        })
+
     uvicorn.run(
         "src.main:app",
         host=settings.API_HOST,
         port=settings.API_PORT,
-        reload=settings.ENVIRONMENT == "development"
+        **extra_kwargs
     )

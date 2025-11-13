@@ -3,7 +3,11 @@
     "allow": [
       "Bash(export PYTHONPATH=.)",
       "Bash(./venv/Scripts/python.exe:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill /F /PID 23080 /PID 15004)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []

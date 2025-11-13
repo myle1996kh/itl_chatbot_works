@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { login, getCurrentUser } from '../services/authService';
-import { TENANTS } from '../constants';
+import { getTenants, TenantResponse } from '../services/tenantService';
 import { UserCircleIcon } from '../components/icons';
 
 interface LoginPageProps {
@@ -8,11 +8,32 @@ interface LoginPageProps {
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [selectedTenant, setSelectedTenant] = useState(TENANTS[0]?.id || '');
+  const [tenants, setTenants] = useState<TenantResponse[]>([]);
+  const [selectedTenant, setSelectedTenant] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingTenants, setLoadingTenants] = useState(true);
+
+  // Load tenants from backend on mount
+  useEffect(() => {
+    const loadTenants = async () => {
+      try {
+        const tenantsData = await getTenants();
+        setTenants(tenantsData);
+        if (tenantsData.length > 0) {
+          setSelectedTenant(tenantsData[0].tenant_id);
+        }
+        setLoadingTenants(false);
+      } catch (err) {
+        console.error('Failed to load tenants:', err);
+        setError('Failed to load tenants');
+        setLoadingTenants(false);
+      }
+    };
+    loadTenants();
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +41,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      const response = await login(email, password, selectedTenant);
+      // For now, use username as email in the login function
+      // Backend now accepts both username and email
+      const response = await login(username, password, selectedTenant);
 
       if (!response.success || !response.data) {
         setError(response.error || 'Login failed');
@@ -77,26 +100,32 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               value={selectedTenant}
               onChange={(e) => setSelectedTenant(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              disabled={loading}
+              disabled={loading || loadingTenants}
             >
-              {TENANTS.map((tenant) => (
-                <option key={tenant.id} value={tenant.id}>
-                  {tenant.name}
-                </option>
-              ))}
+              {loadingTenants ? (
+                <option value="">Loading tenants...</option>
+              ) : tenants.length === 0 ? (
+                <option value="">No tenants available</option>
+              ) : (
+                tenants.map((tenant) => (
+                  <option key={tenant.tenant_id} value={tenant.tenant_id}>
+                    {tenant.name}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 
-          {/* Email */}
+          {/* Username */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Email Address
+              Username
             </label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="admin"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={loading}
               required
@@ -122,7 +151,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           {/* Login Button */}
           <button
             type="submit"
-            disabled={loading || !email || !password}
+            disabled={loading || !username || !password}
             className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-semibold py-2 px-4 rounded-lg transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {loading ? 'Logging in...' : 'Login'}

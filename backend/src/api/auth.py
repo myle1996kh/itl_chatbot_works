@@ -2,8 +2,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, select
-from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
+from typing import Optional, List, Union
 import bcrypt
 import uuid
 from datetime import datetime, timedelta
@@ -23,10 +23,13 @@ logger = get_logger(__name__)
 # ============================================================================
 
 class LoginRequest(BaseModel):
-    """Login request with email and password."""
-    email: str
+    """Login request with username/email and password."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    username: Union[str, None] = None
+    email: Union[str, None] = None
     password: str
-    tenant_id: str  # Required for multi-tenant login
+    tenant_id: str
 
 
 class LoginResponse(BaseModel):
@@ -162,6 +165,35 @@ def generate_token(user_id: str, tenant_id: str, role: str) -> str:
 # Authentication Endpoints
 # ============================================================================
 
+@router.get("/tenants")
+def get_public_tenants(db: Session = Depends(get_db)):
+    """
+    Get list of all active tenants for login page.
+
+    This is a PUBLIC endpoint - no authentication required.
+    Used by LoginPage to show available tenants in dropdown.
+
+    Returns:
+        List of active tenants with basic info
+    """
+    try:
+        tenants = db.query(Tenant).filter(Tenant.status == "active").all()
+        return {
+            "total": len(tenants),
+            "tenants": [
+                {
+                    "tenant_id": str(t.tenant_id),
+                    "name": t.name,
+                    "domain": t.domain,
+                }
+                for t in tenants
+            ]
+        }
+    except Exception as e:
+        logger.error("get_public_tenants_error", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to get tenants")
+
+
 @router.post("/login", response_model=LoginResponse, status_code=status.HTTP_200_OK)
 def login(
     request: LoginRequest,
@@ -197,24 +229,40 @@ def login(
                 detail="Tenant not found"
             )
 
-        # Find user by email (scoped to tenant)
-        user = db.query(User).filter(
-            and_(
-                User.tenant_id == request.tenant_id,
-                User.email == request.email
+        # Find user by username or email (scoped to tenant)
+        if request.username:
+            user = db.query(User).filter(
+                and_(
+                    User.tenant_id == request.tenant_id,
+                    User.username == request.username
+                )
+            ).first()
+            lookup_field = request.username
+        elif request.email:
+            user = db.query(User).filter(
+                and_(
+                    User.tenant_id == request.tenant_id,
+                    User.email == request.email
+                )
+            ).first()
+            lookup_field = request.email
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username or email required"
             )
-        ).first()
 
         if not user:
             logger.warning(
                 "login_failed",
+                username=request.username,
                 email=request.email,
                 tenant_id=request.tenant_id,
                 reason="user_not_found"
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password"
+                detail="Invalid username/email or password"
             )
 
         # Verify password

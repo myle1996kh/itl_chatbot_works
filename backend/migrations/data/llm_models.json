@@ -1,0 +1,41 @@
+[
+  {
+    "model_id": "llm_gemini_flash_2_5",
+    "provider": "google",
+    "model_name": "gemini-2.5-flash",
+    "display_name": "Gemini 2.5 Flash (Google)",
+    "description": "Fast and efficient Gemini model for production use",
+    "is_active": true,
+    "supports_vision": true,
+    "supports_function_calling": true,
+    "context_window": 1000000,
+    "input_cost_per_1m": 0.075,
+    "output_cost_per_1m": 0.3
+  },
+  {
+    "model_id": "llm_gemini_flash_2_0_openrouter",
+    "provider": "openrouter",
+    "model_name": "google/gemini-2.0-flash-exp:free",
+    "display_name": "Gemini 2.0 Flash Exp (OpenRouter - Free)",
+    "description": "Free tier Gemini 2.0 Flash model via OpenRouter",
+    "is_active": true,
+    "supports_vision": true,
+    "supports_function_calling": true,
+    "context_window": 1000000,
+    "input_cost_per_1m": 0.0,
+    "output_cost_per_1m": 0.0
+  },
+  {
+    "model_id": "llm_gpt4o_mini_openrouter",
+    "provider": "openrouter",
+    "model_name": "openai/gpt-4o-mini",
+    "display_name": "GPT-4o Mini (OpenRouter)",
+    "description": "Lightweight and fast GPT-4o model via OpenRouter",
+    "is_active": true,
+    "supports_vision": true,
+    "supports_function_calling": true,
+    "context_window": 128000,
+    "input_cost_per_1m": 0.15,
+    "output_cost_per_1m": 0.6
+  }
+]

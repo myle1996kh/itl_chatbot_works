@@ -9,9 +9,55 @@ logger = get_logger(__name__)
 
 
 class RAGToolConfig(BaseModel):
-    """Configuration for RAG tool."""
-    top_k: int = Field(default=5, ge=1, le=20, description="Number of documents to retrieve")
-    collection_name: Optional[str] = Field(default=None, description="[Deprecated] Collection name (now ignored, kept for backward compatibility)")
+    """Configuration for RAG tool with customizable chunking and embedding."""
+
+    # Retrieval parameters
+    top_k: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Number of documents to retrieve"
+    )
+
+    # Chunking parameters
+    chunk_size: int = Field(
+        default=600,
+        ge=100,
+        le=2000,
+        description="Size of text chunks in characters"
+    )
+    chunk_overlap: int = Field(
+        default=200,
+        ge=0,
+        le=500,
+        description="Overlap between chunks in characters"
+    )
+    separators: List[str] = Field(
+        default=["\n\n", "\n", ". ", " ", ""],
+        description="Text splitting separators in priority order"
+    )
+
+    # Embedding parameters
+    embedding_model: str = Field(
+        default="all-MiniLM-L6-v2",
+        description="HuggingFace embedding model name"
+    )
+    embedding_dimension: int = Field(
+        default=384,
+        description="Embedding vector dimension"
+    )
+
+    # Distance strategy
+    distance_strategy: str = Field(
+        default="COSINE",
+        description="Distance metric: COSINE, EUCLIDEAN, or INNER_PRODUCT"
+    )
+
+    # Deprecated (kept for backward compatibility)
+    collection_name: Optional[str] = Field(
+        default=None,
+        description="[Deprecated] Collection name (now ignored, kept for backward compatibility)"
+    )
 
 
 class RAGTool(BaseTool):
@@ -46,6 +92,11 @@ class RAGTool(BaseTool):
                 "rag_tool_initialized",
                 tenant_id=tenant_id,
                 top_k=self.rag_config.top_k,
+                chunk_size=self.rag_config.chunk_size,
+                chunk_overlap=self.rag_config.chunk_overlap,
+                embedding_model=self.rag_config.embedding_model,
+                embedding_dimension=self.rag_config.embedding_dimension,
+                distance_strategy=self.rag_config.distance_strategy,
                 backend="pgvector"
             )
         except Exception as e:
@@ -92,11 +143,21 @@ class RAGTool(BaseTool):
             }
 
         try:
-            # Query knowledge base using RAGService
+            # Query knowledge base using RAGService with custom config
             result = self.rag_service.query_knowledge_base(
                 tenant_id=self.tenant_id,
                 query=query,
-                top_k=self.rag_config.top_k
+                top_k=self.rag_config.top_k,
+                chunk_config={
+                    "chunk_size": self.rag_config.chunk_size,
+                    "chunk_overlap": self.rag_config.chunk_overlap,
+                    "separators": self.rag_config.separators
+                },
+                embedding_config={
+                    "model": self.rag_config.embedding_model,
+                    "dimension": self.rag_config.embedding_dimension
+                },
+                distance_strategy=self.rag_config.distance_strategy
             )
 
             logger.info(
@@ -104,6 +165,8 @@ class RAGTool(BaseTool):
                 tenant_id=self.tenant_id,
                 query_length=len(query),
                 results_count=result.get("total_results", 0),
+                chunk_size=self.rag_config.chunk_size,
+                embedding_model=self.rag_config.embedding_model,
                 backend="pgvector"
             )
 

@@ -3,10 +3,11 @@ from typing import List, Dict, Any, Callable
 from pydantic import create_model, Field as PydanticField
 from langchain_core.tools import StructuredTool
 from sqlalchemy.orm import Session
+from pathlib import Path
+import importlib
 from src.models.tool import ToolConfig
 from src.models.base_tool import BaseTool as BaseToolModel
-from src.tools.http import HTTPGetTool, HTTPPostTool
-from src.tools.rag import RAGTool
+from src.tools.base import BaseTool
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -16,16 +17,75 @@ class ToolRegistry:
     """Registry for creating and caching LangChain tools from database configuration."""
 
     def __init__(self):
-        """Initialize tool registry with handler mapping."""
+        """Initialize tool registry with auto-discovery."""
         self._cache: Dict[str, StructuredTool] = {}
-        self._tool_handlers = {
-            "tools.http.HTTPGetTool": HTTPGetTool,
-            "tools.http.HTTPPostTool": HTTPPostTool,
-            "tools.rag.RAGTool": RAGTool,
-            # Additional handlers can be added here
-            # "tools.db.DBQueryTool": DBQueryTool,
-            # "tools.ocr.OCRTool": OCRTool,
-        }
+        self._tool_handlers: Dict[str, type] = {}
+
+        # Auto-discover and load tool plugins
+        self._load_tool_plugins()
+
+        logger.info(
+            "tool_registry_initialized",
+            discovered_tools=len(self._tool_handlers),
+            tool_handlers=list(self._tool_handlers.keys())
+        )
+
+    def _load_tool_plugins(self):
+        """
+        Auto-discover and load all tool classes from tools/ directory.
+
+        Scans the tools directory for Python files and dynamically imports
+        any classes that inherit from BaseTool (excluding BaseTool itself).
+        """
+        tools_dir = Path(__file__).parent.parent / "tools"
+
+        if not tools_dir.exists():
+            logger.warning("tools_directory_not_found", tools_dir=str(tools_dir))
+            return
+
+        logger.debug("scanning_tools_directory", tools_dir=str(tools_dir))
+
+        for tool_file in tools_dir.glob("*.py"):
+            # Skip special files
+            if tool_file.stem in ["__init__", "base"]:
+                continue
+
+            module_name = f"src.tools.{tool_file.stem}"
+
+            try:
+                # Dynamically import module
+                module = importlib.import_module(module_name)
+
+                # Find tool classes (inherit from BaseTool)
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+
+                    # Check if it's a class, subclass of BaseTool, and not BaseTool itself
+                    if (
+                        isinstance(attr, type)
+                        and issubclass(attr, BaseTool)
+                        and attr is not BaseTool
+                    ):
+                        # Register with full handler path (format: tools.module.ClassName)
+                        handler_path = f"tools.{tool_file.stem}.{attr_name}"
+                        self._tool_handlers[handler_path] = attr
+
+                        logger.info(
+                            "tool_plugin_loaded",
+                            handler_path=handler_path,
+                            tool_class=attr_name,
+                            module=module_name
+                        )
+
+            except Exception as e:
+                logger.error(
+                    "tool_plugin_load_failed",
+                    module=module_name,
+                    file=tool_file.stem,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                # Continue loading other tools
 
     def create_tool_from_db(
         self,

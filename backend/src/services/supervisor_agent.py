@@ -16,6 +16,9 @@ logger = get_logger(__name__)
 class SupervisorAgent:
     """Supervisor agent for intent detection and routing."""
 
+    # DEPRECATED: Kept for backward compatibility only
+    # Supervisor prompt is now loaded from database (agent_configs table)
+    # This fallback is used only if database entry not found
     SUPERVISOR_PROMPT_TEMPLATE = """You are a Supervisor Agent that routes user queries to specialized domain agents.
 
 Available agents:
@@ -50,12 +53,17 @@ NO explanations, NO additional text."""
         self.jwt_token = jwt_token
         self.session_id = session_id
 
+        # Load supervisor config from database
+        self.supervisor_config = self._load_supervisor_config()
+
         # Initialize LLM for routing
         self.llm = llm_manager.get_llm_for_tenant(db, tenant_id)
 
         # Load available agents for this tenant from database
         self.available_agents = self._load_available_agents()
-        self.supervisor_prompt = self._build_supervisor_prompt()
+
+        # Build prompt from database template
+        self.supervisor_prompt = self._build_supervisor_prompt_from_db()
 
     async def route_message(self, user_message: str) -> Dict[str, Any]:
         """
@@ -249,6 +257,51 @@ NO explanations, NO additional text."""
         message_dict = messages.get(message_type, {})
         return message_dict.get(language, message_dict.get("en", "Please try again."))
 
+    def _load_supervisor_config(self) -> AgentConfig:
+        """
+        Load supervisor agent configuration from database.
+
+        Returns:
+            SupervisorAgent configuration
+
+        Raises:
+            ValueError: If SupervisorAgent not found in database
+        """
+        try:
+            supervisor = (
+                self.db.query(AgentConfig)
+                .filter(
+                    AgentConfig.name == "SupervisorAgent",
+                    AgentConfig.is_active == True
+                )
+                .first()
+            )
+
+            if not supervisor:
+                # Fallback to hardcoded template if not in database (backward compatibility)
+                logger.warning(
+                    "supervisor_not_in_database_using_fallback",
+                    tenant_id=self.tenant_id
+                )
+                return None
+
+            logger.info(
+                "supervisor_config_loaded",
+                tenant_id=self.tenant_id,
+                supervisor_id=str(supervisor.agent_id),
+                has_custom_prompt=bool(supervisor.prompt_template)
+            )
+
+            return supervisor
+
+        except Exception as e:
+            logger.error(
+                "supervisor_config_load_failed",
+                tenant_id=self.tenant_id,
+                error=str(e)
+            )
+            return None
+
     def _load_available_agents(self) -> List[Dict[str, Any]]:
         """
         Load all available agents for this tenant from database.
@@ -298,15 +351,30 @@ NO explanations, NO additional text."""
             )
             return []
 
-    def _build_supervisor_prompt(self) -> str:
+    def _build_supervisor_prompt_from_db(self) -> str:
         """
-        Build supervisor prompt dynamically from available agents.
+        Build supervisor prompt from database template with dynamic agent list.
 
         Returns:
             Formatted supervisor prompt
         """
+        # Use database template if available, otherwise fallback to hardcoded
+        if self.supervisor_config and self.supervisor_config.prompt_template:
+            prompt_template = self.supervisor_config.prompt_template
+            logger.debug(
+                "using_database_prompt_template",
+                tenant_id=self.tenant_id
+            )
+        else:
+            # Fallback to hardcoded template for backward compatibility
+            prompt_template = self.SUPERVISOR_PROMPT_TEMPLATE
+            logger.warning(
+                "using_hardcoded_prompt_template",
+                tenant_id=self.tenant_id
+            )
+
+        # Build agent list
         if not self.available_agents:
-            # Fallback if no agents found
             agents_list = "- No agents available"
             agent_names = '"UNCLEAR"'
             logger.warning(
@@ -327,7 +395,8 @@ NO explanations, NO additional text."""
             ])
             agent_names = agent_names_str + ', '
 
-        prompt = self.SUPERVISOR_PROMPT_TEMPLATE.format(
+        # Format template with dynamic values
+        prompt = prompt_template.format(
             agents_list=agents_list,
             agent_names=agent_names
         )

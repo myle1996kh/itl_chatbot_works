@@ -3,10 +3,11 @@ import { ChatSession, Message, Supporter, Tenant, Topic } from '../types';
 import { SUPPORTERS, TENANTS } from '../constants';
 import { KnowledgeDocument, getDocumentsForTopic, addDocumentToKnowledgeBase, enrichKnowledgeBaseFromChat } from '../services/embeddingService';
 import { parseFileToText } from '../services/fileParserService';
-import { uploadDocument, getKnowledgeBaseStats } from '../services/knowledgeService';
+import { uploadDocument, getKnowledgeBaseStats, ingestTexts } from '../services/knowledgeService';
+import { AGENT_NAMES } from '../src/config/topic-agent-mapping';
 import { getCurrentUser, logout, isAdmin, isStaff, type LoginResponse } from '../services/authService';
-import { getEscalationQueue, assignSupporter as assignSupporterToEscalation, resolveEscalation, getSupporters, type EscalationResponse, type Supporter as EscalationSupporter } from '../services/escalationService';
-import { getSessionsWithFallback, type SessionSummary } from '../services/sessionService';
+import { getEscalationQueue, assignSupporter as assignSupporterToEscalation, resolveEscalation, getSupporters, escalateSession, type EscalationResponse, type Supporter as EscalationSupporter } from '../services/escalationService';
+import { getSessionsWithFallback, getSessionDetail, type SessionSummary, type SessionDetail } from '../services/sessionService';
 import { getTenants as getTenantsFromBackend, getSupporters as getSupportersFromBackend, listUsers, listTenantUsers, createSupporter, updateSupporter, deleteSupporter } from '../services/adminService';
 import { ChatBubbleIcon, DocumentIcon, ExtractIcon, KnowledgeBaseIcon, UploadIcon, XCircleIcon } from './icons';
 import Markdown from 'react-markdown';
@@ -44,13 +45,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   // Session management state
   const [allSessions, setAllSessions] = useState<ChatSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
-  const [filterTenantId, setFilterTenantId] = useState<string>(tenants[0]?.id || TENANTS[0].id);
+  // Start empty; set to a real backend UUID after tenants load (prefer eTMS)
+  const [filterTenantId, setFilterTenantId] = useState<string>('');
   const [currentUser, setCurrentUser] = useState<Supporter | null>(null); // null means Admin
   const [view, setView] = useState<AdminView>('sessions');
 
-  // State for Knowledge Base
-  const [kbTenant, setKbTenant] = useState<Tenant>(tenants[0] || TENANTS[0]);
-  const [kbTopic, setKbTopic] = useState<Topic>((tenants[0] || TENANTS[0]).topics[0]);
+  // State for Knowledge Base - Mock agents with Vietnamese names
+  const [kbTenant, setKbTenant] = useState<Tenant | null>(null);
+  const [kbAgent, setKbAgent] = useState<string>('GuidelineAgent');
+  const mockAgents = [
+    { id: 'GuidelineAgent', name: 'Hướng dẫn sử dụng eTMS' },
+    { id: 'InvoiceAgent', name: 'Tra cứu công nợ' },
+    { id: 'TrackingAgent', name: 'Tra cứu Shipment' },
+  ];
   const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDocument[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
@@ -87,6 +94,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [supporterActionLoading, setSupporterActionLoading] = useState(false);
   const [supporterMessage, setSupporterMessage] = useState('');
 
+  // Helpers
+  const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+  const pickPreferredTenantId = (list: Tenant[]): string => {
+    const byId = list.find(t => t.id === '3105b788-b5ff-4d56-88a9-532af4ab4ded');
+    if (byId) return byId.id;
+    const byName = list.find(t => (t.name || '').toLowerCase() === 'etms');
+    if (byName) return byName.id;
+    return list[0]?.id || '';
+  };
+
 
   // Load tenants and supporters from backend on component mount
   useEffect(() => {
@@ -104,12 +121,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           setBackendTenants(backendTenantsData);
           console.log(`✅ Loaded ${backendTenantsData.length} tenants from backend`);
 
+          // Prefer eTMS as default tenant
+          const preferredId = pickPreferredTenantId(backendTenantsData);
+          setFilterTenantId(preferredId);
+          setKbTenant(backendTenantsData.find(t => t.id === preferredId) || backendTenantsData[0]);
+          // Ensure filterTenantId uses a real backend tenant UUID (avoid 'default')
+          setFilterTenantId(backendTenantsData[0].id);
+
           // Load supporters for the first tenant
           const firstTenantId = backendTenantsData[0].id;
           const supportersData = await getSupportersFromBackend(firstTenantId, jwtToken);
+          setBackendSupporters(supportersData);
           if (supportersData.length > 0) {
-            setBackendSupporters(supportersData);
             console.log(`✅ Loaded ${supportersData.length} supporters from backend`);
+          } else {
+            console.log('ℹ️ No supporters found for tenant', firstTenantId);
           }
         }
       } catch (error) {
@@ -122,8 +148,54 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     loadBackendData();
   }, [jwtToken]);
 
+  // Keep backendSupporters in sync with the selected tenant filter (and session)
+  useEffect(() => {
+    const loadTenantSupporters = async () => {
+      if (!jwtToken) return;
+      const tenantId = selectedSession?.tenantId || filterTenantId;
+      if (!tenantId) return;
+      try {
+        // 1) Preferred: supporters table
+        const supporters = await getSupportersFromBackend(tenantId, jwtToken);
+        if (supporters && supporters.length > 0) {
+          setBackendSupporters(supporters);
+          return;
+        }
+
+        // 2) Fallback: users table filtered to supporter OR staff for this tenant
+        try {
+          const users = await listUsers(jwtToken, { tenant_id: tenantId, limit: 200 });
+          const fallback = (users || [])
+            .filter(u => u.role === 'supporter' || u.role === 'staff')
+            .map(u => ({ id: u.user_id, name: u.display_name || u.username || u.email, tenantId }));
+          setBackendSupporters(fallback);
+        } catch (userErr) {
+          console.warn('Failed to load users fallback', userErr);
+          setBackendSupporters([]);
+        }
+      } catch (e) {
+        console.warn('Failed to load supporters for tenant', tenantId, e);
+        setBackendSupporters([]);
+      }
+    };
+    loadTenantSupporters();
+  }, [filterTenantId, selectedSession?.tenantId, jwtToken]);
+
+  // If we have backend tenants and current filterTenantId is not a UUID, default it (prefer eTMS)
+  useEffect(() => {
+    if (backendTenants.length > 0 && (!filterTenantId || !isUuid(filterTenantId))) {
+      setFilterTenantId(pickPreferredTenantId(backendTenants));
+    }
+  }, [backendTenants]);
+
   const loadChatSessions = async () => {
     try {
+      // Skip if invalid tenant id (e.g., 'default') until backend tenants load
+      if (!isUuid(filterTenantId)) {
+        console.warn('Skipping session load; invalid tenantId:', filterTenantId);
+        setAllSessions([]);
+        return;
+      }
       const sessionsData = await getSessionsWithFallback(filterTenantId);
 
       // Handle both backend and localStorage formats
@@ -175,12 +247,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   }, [filterTenantId]);
 
   useEffect(() => {
-    setKnowledgeDocs(getDocumentsForTopic(kbTenant.id, kbTopic.id));
-  }, [kbTenant, kbTopic]);
+    if (kbTenant) {
+      setKnowledgeDocs(getDocumentsForTopic(kbTenant.id, kbAgent));
+    }
+  }, [kbTenant, kbAgent]);
 
   // Load knowledge base stats from backend when tenant changes
   useEffect(() => {
-    if (useBackendKnowledge && jwtToken) {
+    if (useBackendKnowledge && jwtToken && kbTenant) {
       getKnowledgeBaseStats(kbTenant.id, jwtToken).then(response => {
         if (response.success && response.data) {
           setKbStats({
@@ -192,17 +266,104 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         console.error('Failed to load knowledge base stats:', error);
       });
     }
-  }, [kbTenant.id, useBackendKnowledge, jwtToken]);
+  }, [kbTenant?.id, useBackendKnowledge, jwtToken]);
   
-  // When selected session changes, update its content from the main list
+  // When the sessions list refreshes, keep the selected session in sync
+  // but preserve already loaded messages to avoid wiping the view.
   useEffect(() => {
-      if (selectedSession) {
-          const updatedSession = allSessions.find(s => s.id === selectedSession.id);
-          if (updatedSession) {
-              setSelectedSession(updatedSession);
-          }
+    if (!selectedSession) return;
+    const updated = allSessions.find(s => s.id === selectedSession.id);
+    if (!updated) return;
+    setSelectedSession(prev => {
+      if (!prev) return updated;
+      return {
+        ...updated,
+        messages: (prev.messages && prev.messages.length > 0) ? prev.messages : updated.messages,
+      };
+    });
+  }, [allSessions]);
+
+  // Load full session messages when a session is selected
+  useEffect(() => {
+    const loadSessionMessages = async () => {
+      if (!selectedSession || !jwtToken) {
+        return;
       }
-  }, [allSessions, selectedSession]);
+
+      try {
+        const sessionDetail = await getSessionDetail(selectedSession.tenantId, selectedSession.id);
+        if (sessionDetail) {
+          // Update selectedSession with full message data
+          setSelectedSession(prev => {
+            if (!prev) return null;
+            const pickDisplayText = (data: any): string => {
+              if (data == null) return '';
+              // If backend stored a JSON string, try parse
+              if (typeof data === 'string') {
+                const raw = data.trim();
+                // Try JSON parse
+                try {
+                  const parsed = JSON.parse(raw);
+                  data = parsed;
+                } catch {
+                  // Try to extract "text" fields from JSON-like content
+                  const textMatches = Array.from(raw.matchAll(/"text"\s*:\s*"([\s\S]*?)"/g)).map(m => m[1]);
+                  if (textMatches.length) return textMatches.join('\n\n');
+                  return raw; // Fallback to raw string
+                }
+              }
+              // If object/array structures
+              const extractFrom = (node: any): string | null => {
+                if (!node) return null;
+                if (typeof node === 'string') return node;
+                if (Array.isArray(node)) {
+                  const parts = node.map(extractFrom).filter(Boolean) as string[];
+                  return parts.length ? parts.join('\n\n') : null;
+                }
+                if (typeof node === 'object') {
+                  if (typeof node.text === 'string') return node.text;
+                  if (typeof node.content === 'string') return node.content;
+                  return (
+                    extractFrom(node.response) ||
+                    extractFrom(node.outputs) ||
+                    extractFrom(node.output) ||
+                    extractFrom(node.data)
+                  );
+                }
+                return null;
+              };
+              const from = extractFrom(data);
+              if (from) return from;
+              try { return JSON.stringify(data, null, 2); } catch { return String(data); }
+            };
+            return {
+              ...prev,
+              messages: sessionDetail.messages?.map(msg => ({
+                id: msg.message_id || `msg-${Math.random()}`,
+                sender: msg.sender_type === 'user' ? 'user' : msg.sender_type === 'assistant' ? 'ai' : 'supporter',
+                text: ((): string => {
+                  if (msg.sender_type !== 'assistant') return msg.content;
+                  // First, handle single-quoted dict-like strings from backend
+                  if (typeof msg.content === 'string') {
+                    const raw = msg.content.trim();
+                    const singleQuoted = Array.from(raw.matchAll(/'text'\s*:\s*'([\s\S]*?)'/g)).map(m => m[1]);
+                    if (singleQuoted.length) return singleQuoted.join('\n\n');
+                  }
+                  return pickDisplayText(msg.content);
+                })(),
+                timestamp: msg.timestamp,
+              })) || []
+            };
+          });
+          console.log(`✅ Loaded ${sessionDetail.messages?.length || 0} messages for session`);
+        }
+      } catch (error) {
+        console.error('Failed to load session messages:', error);
+      }
+    };
+
+    loadSessionMessages();
+  }, [selectedSession?.id, filterTenantId, jwtToken]);
 
   const filteredSessions = useMemo(() => {
     let sessions = allSessions.filter(s => s.tenantId === filterTenantId);
@@ -221,16 +382,58 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     setSelectedSession(null); // Deselect session on role change
   };
   
-  const assignSupporter = (sessionId: string, supporterId: string) => {
-    const sessionData = JSON.parse(localStorage.getItem(sessionId)!);
-    sessionData.assignedSupporterId = supporterId || undefined;
-    localStorage.setItem(sessionId, JSON.stringify(sessionData));
-    loadChatSessions();
+  const assignSupporter = async (sessionId: string, supporterId: string) => {
+    try {
+      // If authenticated, persist assignment to backend escalation endpoint
+      if (jwtToken) {
+        const tenantId = selectedSession?.tenantId || filterTenantId;
+        let targetSupporterId = supporterId;
+        // If selected id is not in current backendSupporters by id (supporters API), it may be a user_id
+        const inCurrent = backendSupporters.some(s => s.id === supporterId);
+        if (!inCurrent) {
+          // Attempt to create supporter from this user id
+          try {
+            const created = await createSupporter(tenantId, supporterId, 5, jwtToken);
+            targetSupporterId = created.supporter_id || created.id || supporterId;
+          } catch (createErr) {
+            console.error('Failed to create supporter from user:', createErr);
+          }
+        }
+        try {
+          await assignSupporterToEscalation(tenantId, sessionId, targetSupporterId);
+        } catch (err) {
+          console.warn('Assign failed, attempting auto-escalate then retry...', err);
+          // Auto-escalate the session if it's not escalated yet, then retry assign
+          try {
+            await escalateSession(tenantId, sessionId, 'Manual assignment by admin');
+            await assignSupporterToEscalation(tenantId, sessionId, targetSupporterId);
+          } catch (retryErr) {
+            console.error('Assign supporter failed after auto-escalate:', retryErr);
+            throw retryErr;
+          }
+        }
+        // Refresh sessions and selected session
+        await loadChatSessions();
+        setSelectedSession(prev => prev ? { ...prev, assignedSupporterId: supporterId || null } : prev);
+        return;
+      }
+
+      // Local fallback if no JWT (dev/demo)
+      const sessionDataRaw = localStorage.getItem(sessionId);
+      if (sessionDataRaw) {
+        const sessionData = JSON.parse(sessionDataRaw);
+        sessionData.assignedSupporterId = supporterId || undefined;
+        localStorage.setItem(sessionId, JSON.stringify(sessionData));
+      }
+      loadChatSessions();
+    } catch (e) {
+      console.error('Failed to assign supporter:', e);
+    }
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !kbTenant) return;
 
     setUploading(true);
     setUploadStatus(`Processing ${file.name}...`);
@@ -243,6 +446,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           tenantId: kbTenant.id,
           file: file,
           documentName: file.name,
+          agentName: kbAgent, // Send agent name to backend
           jwt: jwtToken,
         });
 
@@ -250,7 +454,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           throw new Error(response.error || 'Failed to upload document to backend');
         }
 
-        setUploadStatus(`✅ Successfully uploaded ${file.name}! (${response.data?.chunk_count} chunks)`);
+        setUploadStatus(`✅ Successfully uploaded ${file.name} to ${kbAgent}! (${response.data?.chunk_count} chunks)`);
 
         // Reload knowledge base stats
         const statsResponse = await getKnowledgeBaseStats(kbTenant.id, jwtToken);
@@ -266,10 +470,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         const content = await parseFileToText(file);
 
         setUploadStatus(`Adding to local knowledge base...`);
-        addDocumentToKnowledgeBase(kbTenant.id, kbTopic.id, file.name, content);
+        addDocumentToKnowledgeBase(kbTenant.id, kbAgent, file.name, content);
 
-        setKnowledgeDocs(getDocumentsForTopic(kbTenant.id, kbTopic.id));
-        setUploadStatus(`✅ Successfully added ${file.name} to local knowledge base!`);
+        setKnowledgeDocs(getDocumentsForTopic(kbTenant.id, kbAgent));
+        setUploadStatus(`✅ Successfully added ${file.name} to ${kbAgent}!`);
       }
     } catch (error: any) {
       console.error('File upload failed:', error);
@@ -293,12 +497,53 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     });
   };
 
-  const handleEnrichment = (topic: Topic) => {
-    const messagesToEnrich = Object.values(selectedMessages).map(m => ({ text: m.text, sender: m.sender }));
-    enrichKnowledgeBaseFromChat(findTenant(selectedSession!.tenantId, tenants)!, topic, messagesToEnrich);
-    alert(`Knowledge base for topic "${topic.name}" has been enriched!`);
-    setShowEnrichModal(false);
-    setSelectedMessages({});
+  const mapTopicToAgent = (topic: Topic): string => {
+    const name = (topic?.name || topic?.id || '').toLowerCase();
+    if (name.includes('guideline') || name.includes('hướng dẫn')) return AGENT_NAMES.GUIDELINE;
+    if (name.includes('shipment') || name.includes('đơn hàng') || name.includes('tracking')) return AGENT_NAMES.SHIPMENT;
+    if (name.includes('debt') || name.includes('công nợ') || name.includes('invoice') || name.includes('hóa đơn')) return AGENT_NAMES.DEBT;
+    // Default agent for enrichment
+    return AGENT_NAMES.GUIDELINE;
+  };
+
+  const handleEnrichment = async (topic: Topic) => {
+    try {
+      const messagesToEnrich = Object.values(selectedMessages).map(m => ({ text: m.text, sender: m.sender }));
+      const tenant = findTenant(selectedSession!.tenantId, tenants)!;
+
+      // If backend is connected (JWT present), push to database via admin API
+      if (useBackendKnowledge && jwtToken) {
+        const conversationText = messagesToEnrich
+          .map(m => `${m.sender === 'user' ? 'User' : m.sender === 'ai' ? 'Agent' : 'Supporter'}: ${m.text}`)
+          .join('\n\n');
+
+        const documentName = `Enriched from chat (${new Date().toLocaleString()})`;
+        const agentName = mapTopicToAgent(topic);
+        const meta = [{
+          source: 'conversation',
+          source_detail: 'admin_enrich',
+          topic_id: topic.id,
+          topic_name: topic.name,
+          agent_name: agentName,
+          document_name: documentName,
+          session_id: selectedSession!.id,
+          messages_count: messagesToEnrich.length,
+        }];
+
+        const result = await ingestTexts(tenant.id, [conversationText], meta, jwtToken);
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to ingest enriched text');
+        }
+      } else {
+        // Local-only fallback (no JWT): store in localStorage
+        enrichKnowledgeBaseFromChat(tenant, topic, messagesToEnrich);
+      }
+    } catch (e: any) {
+      console.error('Enrichment failed:', e);
+    } finally {
+      setShowEnrichModal(false);
+      setSelectedMessages({});
+    }
   }
   
   const handleSendSupporterMessage = () => {
@@ -455,9 +700,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                 <div className="p-4 border-b">
                     <h2 className="text-lg font-semibold">{currentUser ? `${currentUser.name}'s Chats` : 'All Chats'} ({filteredSessions.length})</h2>
                     {!currentUser && (
-                         <select value={filterTenantId} onChange={e => setFilterTenantId(e.target.value)} className="mt-2 w-full rounded-md border-gray-300 text-sm">
-                            {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                        </select>
+                      <select
+                        value={filterTenantId}
+                        onChange={e => setFilterTenantId(e.target.value)}
+                        className="mt-2 w-full rounded-md border-gray-300 text-sm"
+                      >
+                        {backendTenants.length === 0 ? (
+                          <option value="" disabled>
+                            {jwtToken ? 'Loading tenants…' : 'Login required'}
+                          </option>
+                        ) : (
+                          backendTenants.map(t => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))
+                        )}
+                      </select>
                     )}
                 </div>
                 <ul className="divide-y divide-gray-200 h-[calc(100vh-18rem)] overflow-y-auto">
@@ -556,17 +813,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                     <div>
                         <label className="block text-sm font-medium">Tenant</label>
                         <select onChange={e => {
-                            const newTenant = findTenant(e.target.value, tenants)!;
-                            setKbTenant(newTenant);
-                            setKbTopic(newTenant.topics[0]);
-                        }} value={kbTenant.id} className="mt-1 w-full rounded-md border-gray-300">
+                            const newTenant = findTenant(e.target.value, tenants);
+                            if (newTenant) {
+                              setKbTenant(newTenant);
+                            }
+                        }} value={kbTenant?.id || ''} className="mt-1 w-full rounded-md border-gray-300">
                             {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                         </select>
                     </div>
                      <div>
-                        <label className="block text-sm font-medium">Topic</label>
-                        <select onChange={e => setKbTopic(kbTenant.topics.find(t => t.id === e.target.value)!)} value={kbTopic.id} className="mt-1 w-full rounded-md border-gray-300">
-                            {kbTenant.topics.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        <label className="block text-sm font-medium">Agent</label>
+                        <select onChange={e => setKbAgent(e.target.value)} value={kbAgent} className="mt-1 w-full rounded-md border-gray-300">
+                            {mockAgents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
                         </select>
                     </div>
                      <div className="flex flex-col justify-end">
@@ -588,7 +846,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                         </p>
                      </div>
                  </div>
-                 <h3 className="font-semibold text-lg mb-2">Documents for "{kbTopic.name}"</h3>
+                 <h3 className="font-semibold text-lg mb-2">Documents for "{mockAgents.find(a => a.id === kbAgent)?.name || kbAgent}"</h3>
                  <div className="border rounded-lg p-4 h-96 overflow-y-auto bg-gray-50 space-y-3">
                     {knowledgeDocs.length > 0 ? knowledgeDocs.map(doc => (
                         <div key={doc.id} className="p-3 bg-white border rounded-md">
@@ -710,6 +968,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                       try {
                         const supp = await getSupportersFromBackend(filterTenantId, jwtToken || '');
                         setSupporterList(supp);
+                        setBackendSupporters(supp);
                       } catch (error) {
                         console.error('Failed to load supporters:', error);
                       } finally {

@@ -12,6 +12,7 @@ from .permissions import TenantAgentPermission, TenantToolPermission
 from .session import ChatSession
 from .message import Message
 from .tenant_widget_config import TenantWidgetConfig
+from .user import User
 
 __all__ = [
     "Base",
@@ -27,4 +28,5 @@ __all__ = [
     "ChatSession",
     "Message",
     "TenantWidgetConfig",
+    "User",
 ]

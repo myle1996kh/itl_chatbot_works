@@ -1,0 +1,17 @@
+[
+  {
+    "name": "eTMS",
+    "domain": "e-transportation-management",
+    "status": "active"
+  },
+  {
+    "name": "eFMS",
+    "domain": "e-fleet-management",
+    "status": "active"
+  },
+  {
+    "name": "Vela",
+    "domain": "vela-support",
+    "status": "active"
+  }
+]
