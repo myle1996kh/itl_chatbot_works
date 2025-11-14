@@ -424,3 +424,122 @@ async def supporter_send_message(
             exc_info=True,
         )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post(
+    "/admin/tenants/{tenant_id}/sessions/{session_id}/messages",
+    response_model=SupporterChatResponse,
+    tags=["admin"],
+)
+async def admin_send_message(
+    tenant_id: UUID = Path(..., description="Tenant UUID"),
+    session_id: str = Path(..., description="Session UUID"),
+    request: SupporterChatRequest = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    current_tenant: Optional[str] = Depends(get_current_tenant),
+) -> SupporterChatResponse:
+    """
+    Admin sends message to a session (bypasses escalation requirement).
+
+    Creates a message with role='supporter' and sender_user_id=current_user.
+    Admin can send messages to ANY session regardless of escalation status.
+    Updates session's last_message_at timestamp.
+
+    Args:
+        tenant_id: Tenant UUID
+        session_id: Session UUID
+        request: SupporterChatRequest with message
+        db: Database session
+        current_user: Current user UUID from JWT (admin/staff)
+        current_tenant: Current tenant UUID from JWT (must match tenant_id)
+
+    Returns:
+        SupporterChatResponse with created message details
+    """
+    try:
+        # Extract user_id from JWT
+        current_user_id = current_user.get("sub")
+
+        # Dev mode: allow sender_user_id from request
+        if settings.DISABLE_AUTH and request.sender_user_id:
+            current_user_id = request.sender_user_id
+
+        if not current_user_id:
+            raise HTTPException(status_code=401, detail="Invalid JWT token - missing 'sub'")
+
+        try:
+            current_user_uuid = UUID(current_user_id)
+        except ValueError:
+            raise HTTPException(status_code=401, detail="Invalid user ID format")
+
+        # Validate tenant access
+        if not settings.DISABLE_AUTH and current_tenant != str(tenant_id):
+            raise HTTPException(status_code=403, detail="Access denied to this tenant")
+
+        # Get session
+        session = (
+            db.query(ChatSession)
+            .filter(
+                and_(
+                    ChatSession.session_id == session_id,
+                    ChatSession.tenant_id == tenant_id,
+                )
+            )
+            .first()
+        )
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Validate message content
+        if not request.message or not request.message.strip():
+            raise HTTPException(status_code=400, detail="Message content cannot be empty")
+
+        # Create message
+        message = Message(
+            message_id=str(uuid.uuid4()),
+            session_id=session_id,
+            tenant_id=tenant_id,
+            sender_user_id=current_user_uuid,
+            role="supporter",
+            content=request.message.strip(),
+            created_at=datetime.now(timezone.utc),
+        )
+
+        db.add(message)
+
+        # Update session's last_message_at
+        session.last_message_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(message)
+
+        logger.info(
+            "admin_message_sent",
+            tenant_id=str(tenant_id),
+            session_id=session_id,
+            sender_user_id=str(current_user_id),
+            message_length=len(request.message),
+        )
+
+        return SupporterChatResponse(
+            success=True,
+            message_id=str(message.message_id),
+            session_id=str(message.session_id),
+            role=message.role,
+            sender_user_id=str(message.sender_user_id),
+            content=message.content,
+            created_at=message.created_at,
+            metadata=message.message_metadata,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "admin_message_error",
+            tenant_id=str(tenant_id),
+            session_id=session_id,
+            error=str(e),
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

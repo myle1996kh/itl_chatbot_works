@@ -42,7 +42,7 @@ async def list_tenant_sessions(
             ChatSession.tenant_id == tenant_id
         ).count()
 
-        # Get sessions with pagination
+        # Get sessions with pagination (eagerly load chat_user relationship)
         sessions = db.query(ChatSession).filter(
             ChatSession.tenant_id == tenant_id
         ).order_by(
@@ -50,21 +50,34 @@ async def list_tenant_sessions(
         ).limit(limit).offset(offset).all()
 
         # Convert to SessionSummary format
-        session_summaries = [
-            SessionSummary(
-                session_id=str(session.session_id),
-                tenant_id=session.tenant_id,
-                user_id=session.user_id,
-                agent_id=session.agent_id,
-                thread_id=session.thread_id,
-                created_at=session.created_at.isoformat(),
-                last_message_at=session.last_message_at.isoformat() if session.last_message_at else None,
-                message_count=len(session.messages) if session.messages else 0,
-                escalation_status=session.escalation_status,
-                assigned_supporter_id=str(session.assigned_user_id) if session.assigned_user_id else None,
+        session_summaries = []
+        for session in sessions:
+            # Ensure metadata is a plain dict (not SQLAlchemy object)
+            metadata_dict = {}
+            if session.session_metadata:
+                if isinstance(session.session_metadata, dict):
+                    metadata_dict = session.session_metadata
+                else:
+                    try:
+                        metadata_dict = dict(session.session_metadata)
+                    except (TypeError, ValueError):
+                        metadata_dict = {}
+
+            session_summaries.append(
+                SessionSummary(
+                    session_id=str(session.session_id),
+                    user_id=str(session.user_id),
+                    user_email=session.chat_user.email if session.chat_user else None,
+                    user_name=session.chat_user.username if session.chat_user else None,
+                    created_at=session.created_at,
+                    last_message_at=session.last_message_at,
+                    message_count=len(session.messages) if session.messages else 0,
+                    last_message_preview=session.messages[-1].content[:100] if session.messages else None,
+                    escalation_status=session.escalation_status,
+                    assigned_supporter_id=str(session.assigned_user_id) if session.assigned_user_id else None,
+                    metadata=metadata_dict,
+                )
             )
-            for session in sessions
-        ]
 
         logger.info(
             "list_tenant_sessions",
@@ -127,18 +140,28 @@ async def get_session_details(
         ).order_by(Message.created_at).all()
 
         # Convert messages to dict format
-        message_list = [
-            {
+        message_list = []
+        for msg in messages:
+            # Ensure message metadata is a plain dict (not SQLAlchemy object)
+            msg_metadata_dict = {}
+            if msg.message_metadata:
+                if isinstance(msg.message_metadata, dict):
+                    msg_metadata_dict = msg.message_metadata
+                else:
+                    try:
+                        msg_metadata_dict = dict(msg.message_metadata)
+                    except (TypeError, ValueError):
+                        msg_metadata_dict = {}
+
+            message_list.append({
                 "message_id": str(msg.message_id),
                 "session_id": str(msg.session_id),
                 "sender_id": msg.sender_user_id,
                 "sender_type": msg.role,
                 "content": msg.content,
                 "timestamp": msg.created_at.isoformat(),
-                "metadata": msg.message_metadata or {},
-            }
-            for msg in messages
-        ]
+                "metadata": msg_metadata_dict,
+            })
 
         logger.info(
             "get_session_details",
@@ -148,16 +171,27 @@ async def get_session_details(
             admin_id=admin_payload.get("sub")
         )
 
+        # Ensure metadata is a plain dict (not SQLAlchemy object)
+        metadata_dict = {}
+        if session.session_metadata:
+            if isinstance(session.session_metadata, dict):
+                metadata_dict = session.session_metadata
+            else:
+                try:
+                    metadata_dict = dict(session.session_metadata)
+                except (TypeError, ValueError):
+                    metadata_dict = {}
+
         return SessionDetail(
             session_id=str(session.session_id),
-            tenant_id=session.tenant_id,
-            user_id=session.user_id,
-            agent_id=session.agent_id,
+            tenant_id=str(session.tenant_id),
+            user_id=str(session.user_id),
+            agent_id=str(session.agent_id) if session.agent_id else None,
             thread_id=session.thread_id,
             created_at=session.created_at,
             last_message_at=session.last_message_at,
             messages=message_list,
-            metadata=session.session_metadata,
+            metadata=metadata_dict,
         )
 
     except HTTPException:

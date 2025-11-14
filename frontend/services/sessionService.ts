@@ -168,7 +168,7 @@ export async function getTenantSessions(tenantId: string): Promise<SessionSummar
 }
 
 /**
- * Get session details with all messages
+ * Get session details with all messages (ADMIN ONLY - use getSessionDetailPublic for supporters)
  *
  * @param tenantId - UUID of the tenant
  * @param sessionId - UUID of the session
@@ -188,6 +188,56 @@ export async function getSessionDetail(
 
     const response = await fetch(
       `${base}/api/admin/tenants/${tenantId}/sessions/${sessionId}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.warn(`Session ${sessionId} not found`);
+        return null;
+      }
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Failed to fetch session: HTTP ${response.status} - ${errorData.detail}`);
+    }
+
+    const session = await response.json() as SessionDetail;
+    console.log(`✅ Loaded session ${sessionId} with ${session.messages?.length || 0} messages`);
+    return session;
+  } catch (error) {
+    console.error(`Failed to get session detail for ${sessionId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Get session details with all messages (PUBLIC - works for all authenticated users including supporters)
+ *
+ * Uses the non-admin endpoint so supporters and users can fetch their messages.
+ *
+ * @param tenantId - UUID of the tenant
+ * @param sessionId - UUID of the session
+ * @returns SessionDetail
+ */
+export async function getSessionDetailPublic(
+  tenantId: string,
+  sessionId: string
+): Promise<SessionDetail | null> {
+  try {
+    const base = resolveBaseUrl(API_BASE_URL);
+    const token = getJWTToken();
+    if (!token) {
+      console.warn('No JWT token available, cannot fetch session detail');
+      return null;
+    }
+
+    const response = await fetch(
+      `${base}/api/${tenantId}/session/${sessionId}`,
       {
         method: 'GET',
         headers: {

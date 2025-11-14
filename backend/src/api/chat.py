@@ -5,11 +5,13 @@ import uuid
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Path, Body, Response
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from src.config import get_db, settings
 from typing import Optional
 from src.models.session import ChatSession
 from src.models.message import Message
 from src.models.tenant import Tenant
+from src.models.chat_user import ChatUser
 from src.models.agent import AgentConfig
 from src.models.permissions import TenantAgentPermission
 from src.schemas.chat import ChatRequest, ChatResponse
@@ -306,7 +308,7 @@ async def _get_or_create_session(
         db: Database session
         tenant_id: Tenant UUID
         session_id: Optional existing session ID
-        user_id: User identifier (UUID string from JWT)
+        user_id: User identifier (UUID string from JWT or chat_users.user_id)
 
     Returns:
         ChatSession instance
@@ -318,6 +320,22 @@ async def _get_or_create_session(
         raise HTTPException(
             status_code=400,
             detail=f"Invalid user_id format: {user_id}. Must be valid UUID."
+        )
+
+    # Validate that ChatUser exists (new requirement)
+    chat_user = (
+        db.query(ChatUser).filter(
+            and_(
+                ChatUser.tenant_id == tenant_id,
+                ChatUser.user_id == user_id_uuid,
+            )
+        ).first()
+    )
+
+    if not chat_user:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat user not found. Please create a chat user account first via /api/{tenant_id}/chat_users"
         )
 
     if session_id:
@@ -364,7 +382,7 @@ async def _get_or_create_session(
         tenant_id=tenant_id,
         user_id=user_id_uuid,
         thread_id=thread_id,
-        metadata={},
+        session_metadata={},
     )
 
     db.add(session)

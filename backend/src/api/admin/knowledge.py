@@ -231,10 +231,10 @@ async def upload_document(
     admin_payload: dict = Depends(require_admin_role),
 ) -> PDFUploadResponse:
     """
-    Upload and process a document file (PDF or DOCX) into tenant's knowledge base.
+    Upload and process a document file (PDF, DOCX, or TXT) into tenant's knowledge base.
 
     This endpoint:
-    1. Validates the document file (supports .pdf, .docx, .doc)
+    1. Validates the document file (supports .pdf, .docx, .doc, .txt)
     2. Extracts text and splits into chunks (400 chars, 200 overlap)
     3. For DOCX: Tracks section hierarchy and heading structure
     4. Generates embeddings using all-MiniLM-L6-v2 (384 dimensions)
@@ -243,9 +243,11 @@ async def upload_document(
     Metadata for DOCX files includes:
     - section_title: Current section heading (e.g., "2.3.3. Track and Trace")
     - section_number: Section number (e.g., "2.3.3")
-    - file_type: '.docx' or '.pdf'
+    - file_type: '.docx', '.pdf', or '.txt'
     - paragraph_index: Position in document
     - is_heading: Whether the chunk is a heading
+
+    Use case: .txt files are useful for enriching knowledge base from chat history.
 
     Requires admin role in JWT.
     """
@@ -257,10 +259,10 @@ async def upload_document(
 
         # Validate file format
         file_ext = FilePath(file.filename).suffix.lower()
-        if file_ext not in ['.pdf', '.docx', '.doc']:
+        if file_ext not in ['.pdf', '.docx', '.doc', '.txt']:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported file format: {file_ext}. Supported: .pdf, .docx, .doc"
+                detail=f"Unsupported file format: {file_ext}. Supported: .pdf, .docx, .doc, .txt"
             )
 
         # Get RAG service

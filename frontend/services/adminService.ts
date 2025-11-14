@@ -243,7 +243,7 @@ export async function getSessionMessages(
 ): Promise<any[]> {
   try {
     const response = await fetch(
-      `${API_BASE_URL}/api/${tenantId}/sessions/${sessionId}/messages`,
+      `${API_BASE_URL}/api/${tenantId}/sessions/${sessionId}/supporter-chat`,
       {
         method: 'GET',
         headers: {

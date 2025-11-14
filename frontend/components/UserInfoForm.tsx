@@ -1,9 +1,15 @@
 import React, { useState } from 'react';
 import { UserInfo, Tenant, Topic } from '../types';
+import { createOrGetChatUser, createSession } from '../services/chatUserService';
 
 interface UserInfoFormProps {
   tenant: Tenant;
-  onComplete: (userInfo: UserInfo, selectedTopicId: string) => void;
+  onComplete: (userInfo: UserInfo, selectedTopicId: string, userId: string, sessionId: string) => void;
+}
+
+interface ExtendedUserInfo extends UserInfo {
+  user_id?: string;
+  session_id?: string;
 }
 
 const UserInfoForm: React.FC<UserInfoFormProps> = ({ tenant, onComplete }) => {
@@ -12,22 +18,80 @@ const UserInfoForm: React.FC<UserInfoFormProps> = ({ tenant, onComplete }) => {
     email: '',
     department: '',
   });
+  const [userId, setUserId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [formSubmitted, setFormSubmitted] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setUserInfo((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (userInfo.username && userInfo.email) {
+    if (!userInfo.username || !userInfo.email) {
+      setError('Please fill in name and email');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Step 1: Create or get chat user
+      const userResponse = await createOrGetChatUser(
+        tenant.id,
+        userInfo.email,
+        userInfo.username,
+        userInfo.department
+      );
+
+      if (!userResponse.success || !userResponse.data) {
+        setError(userResponse.error || 'Failed to create user account');
+        setIsLoading(false);
+        return;
+      }
+
+      const chatUser = userResponse.data;
+      console.log('✅ Chat user ready:', chatUser.user_id);
+
+      // Step 2: Create a new session
+      const sessionResponse = await createSession(
+        tenant.id,
+        chatUser.user_id
+      );
+
+      if (!sessionResponse.success || !sessionResponse.data) {
+        setError(sessionResponse.error || 'Failed to create session');
+        setIsLoading(false);
+        return;
+      }
+
+      const session = sessionResponse.data;
+      console.log('✅ Chat session ready:', session.session_id);
+
+      // Store user_id and session_id in state for handleTopicSelect
+      setUserId(chatUser.user_id);
+      setSessionId(session.session_id);
       setFormSubmitted(true);
+      setIsLoading(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+      setIsLoading(false);
     }
   };
 
   const handleTopicSelect = (topicId: string) => {
-    onComplete(userInfo, topicId);
+    // Use user_id and session_id from state (set during form submission)
+    if (!userId || !sessionId) {
+      setError('Missing user or session information. Please try again.');
+      return;
+    }
+
+    console.log('✅ Calling onComplete with:', { userId, sessionId, topicId });
+    onComplete(userInfo, topicId, userId, sessionId);
   };
 
   const primaryColor = tenant.theme.primaryColor;
@@ -43,6 +107,11 @@ const UserInfoForm: React.FC<UserInfoFormProps> = ({ tenant, onComplete }) => {
           <h2 className="text-xl font-bold text-gray-800 mb-2">Welcome to {tenant.name}</h2>
           <p className="text-gray-600 mb-6">Please fill in your details to start chatting.</p>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+                {error}
+              </div>
+            )}
             <div>
               <label htmlFor="username" className="block text-sm font-medium text-gray-700">
                 Full Name
@@ -54,7 +123,8 @@ const UserInfoForm: React.FC<UserInfoFormProps> = ({ tenant, onComplete }) => {
                 value={userInfo.username}
                 onChange={handleChange}
                 required
-                className={`mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 ${ringFocusClass} ${borderFocusClass} sm:text-sm`}
+                disabled={isLoading}
+                className={`mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 ${ringFocusClass} ${borderFocusClass} sm:text-sm disabled:bg-gray-100`}
               />
             </div>
             <div>
@@ -68,7 +138,8 @@ const UserInfoForm: React.FC<UserInfoFormProps> = ({ tenant, onComplete }) => {
                 value={userInfo.email}
                 onChange={handleChange}
                 required
-                className={`mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 ${ringFocusClass} ${borderFocusClass} sm:text-sm`}
+                disabled={isLoading}
+                className={`mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 ${ringFocusClass} ${borderFocusClass} sm:text-sm disabled:bg-gray-100`}
               />
             </div>
             <div>
@@ -81,14 +152,16 @@ const UserInfoForm: React.FC<UserInfoFormProps> = ({ tenant, onComplete }) => {
                 name="department"
                 value={userInfo.department}
                 onChange={handleChange}
-                className={`mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 ${ringFocusClass} ${borderFocusClass} sm:text-sm`}
+                disabled={isLoading}
+                className={`mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 ${ringFocusClass} ${borderFocusClass} sm:text-sm disabled:bg-gray-100`}
               />
             </div>
             <button
               type="submit"
-              className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${buttonBgClass} ${buttonHoverBgClass} focus:outline-none focus:ring-2 focus:ring-offset-2 ${ringFocusClass} transition duration-150 ease-in-out`}
+              disabled={isLoading}
+              className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${buttonBgClass} ${buttonHoverBgClass} focus:outline-none focus:ring-2 focus:ring-offset-2 ${ringFocusClass} transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed`}
             >
-              Continue
+              {isLoading ? 'Creating account...' : 'Continue'}
             </button>
           </form>
         </>

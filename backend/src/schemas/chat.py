@@ -68,8 +68,10 @@ class ErrorResponse(BaseModel):
 class SessionSummary(BaseModel):
     """Session summary schema."""
 
-    session_id: UUID
-    user_id: str = Field(..., description="User identifier")
+    session_id: str
+    user_id: str = Field(..., description="User identifier (UUID)")
+    user_email: Optional[str] = Field(None, description="User email address")
+    user_name: Optional[str] = Field(None, description="User name")
     created_at: datetime
     last_message_at: datetime
     message_count: int
@@ -92,10 +94,10 @@ class Message(BaseModel):
 class SessionDetail(BaseModel):
     """Detailed session information schema."""
 
-    session_id: UUID
-    tenant_id: UUID
+    session_id: str
+    tenant_id: str
     user_id: str
-    agent_id: Optional[UUID] = None
+    agent_id: Optional[str] = None
     thread_id: Optional[str] = Field(None, description="LangGraph thread ID")
     created_at: datetime
     last_message_at: datetime
@@ -110,3 +112,33 @@ class SessionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class SessionCreateRequest(BaseModel):
+    """Request schema for creating a new session."""
+
+    topic: Optional[str] = Field(None, description="Starting topic/intent for the session")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Optional session metadata")
+
+
+class SessionCreateResponse(BaseModel):
+    """Response schema for session creation."""
+
+    session_id: str = Field(..., description="New session UUID")
+    user_id: str = Field(..., description="Chat user UUID")
+    tenant_id: str = Field(..., description="Tenant UUID")
+    created_at: datetime = Field(..., description="Session creation timestamp")
+
+
+class SessionEndRequest(BaseModel):
+    """Request schema for ending a session."""
+
+    feedback: Optional[str] = Field(None, max_length=500, description="Optional session feedback")
+
+
+class SessionEndResponse(BaseModel):
+    """Response schema for ending a session."""
+
+    session_id: str = Field(..., description="Session UUID")
+    escalation_status: str = Field(..., description="Updated escalation status")
+    message: str = Field(..., description="Status message")

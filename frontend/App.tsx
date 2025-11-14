@@ -16,6 +16,8 @@ const App: React.FC = () => {
   const [tenantsError, setTenantsError] = useState<string | null>(null);
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [initialTopicId, setInitialTopicId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [view, setView] = useState<View>('demo');
 
@@ -58,46 +60,90 @@ const App: React.FC = () => {
         if (key) {
           const savedUser = sessionStorage.getItem(key);
           if (savedUser) {
-              setUserInfo(JSON.parse(savedUser));
+              const parsed = JSON.parse(savedUser);
+              setUserInfo({
+                username: parsed.username,
+                email: parsed.email,
+                department: parsed.department,
+              });
+              setUserId(parsed.user_id);
+              setSessionId(parsed.session_id);
               // Default to first topic from constants (since database doesn't store topics)
               setInitialTopicId(TENANTS[0].topics[0].id);
+              console.log('✅ Restored user from cache:', parsed.email);
           } else {
               setUserInfo(null);
+              setUserId(null);
+              setSessionId(null);
               setInitialTopicId(null);
           }
         }
     } catch (error) {
         console.error("Failed to parse user session from sessionStorage", error);
         setUserInfo(null);
+        setUserId(null);
+        setSessionId(null);
     }
     setIsChatOpen(false); // Always start with chat closed on tenant switch
   }, [selectedTenant, view]);
 
-  const handleFormComplete = (info: UserInfo, topicId: string) => {
+  const handleFormComplete = (info: UserInfo, topicId: string, newUserId: string, newSessionId: string) => {
     setUserInfo(info);
     setInitialTopicId(topicId);
+    setUserId(newUserId);
+    setSessionId(newSessionId);
     try {
         const key = getSessionKey();
         if (key) {
-          sessionStorage.setItem(key, JSON.stringify(info));
+          sessionStorage.setItem(key, JSON.stringify({
+            ...info,
+            user_id: newUserId,
+            session_id: newSessionId,
+          }));
         }
     } catch (error) {
         console.error("Failed to save user session to sessionStorage", error);
     }
   };
 
-  const handleEndSession = () => {
-      if (userInfo && selectedTenant) {
-          // Clear history and session from localStorage
-          localStorage.removeItem(`chatHistory_${selectedTenant.tenant_id}_${userInfo.email}`);
-          const key = getSessionKey();
-          if (key) {
-            sessionStorage.removeItem(key);
+  const handleEndSession = async () => {
+      if (userInfo && selectedTenant && sessionId && userId) {
+          // Call API to end current session
+          try {
+              const { endSession, createSession } = await import('./services/chatUserService');
+              await endSession(selectedTenant.tenant_id, sessionId);
+              console.log('✅ Session ended');
+
+              // Create a NEW session for the same user
+              try {
+                  const sessionResponse = await createSession(selectedTenant.tenant_id, userId);
+                  if (sessionResponse.success && sessionResponse.data) {
+                      const newSessionId = sessionResponse.data.session_id;
+                      setSessionId(newSessionId);
+                      console.log('✅ New session created:', newSessionId);
+
+                      // Update cache with new session
+                      const key = getSessionKey();
+                      if (key) {
+                          sessionStorage.setItem(key, JSON.stringify({
+                              ...userInfo,
+                              user_id: userId,
+                              session_id: newSessionId,
+                          }));
+                      }
+                  }
+              } catch (error) {
+                  console.error('Failed to create new session:', error);
+              }
+
+              // Clear chat history from localStorage
+              localStorage.removeItem(`chatHistory_${selectedTenant.tenant_id}_${userInfo.email}`);
+          } catch (error) {
+              console.error('Failed to end session on backend:', error);
           }
       }
-      setIsChatOpen(false);
-      setUserInfo(null);
-      setInitialTopicId(null);
+      // Keep chat open so user can see new session is ready
+      setIsChatOpen(true);
   };
 
   const getPrimaryColor = () => {
@@ -203,7 +249,7 @@ const App: React.FC = () => {
       <div className="fixed bottom-5 right-5 z-50">
           {isChatOpen ? (
               <div className="transition-all duration-300 ease-out transform scale-100 opacity-100">
-                {userInfo && initialTopicId ? (
+                {userInfo && initialTopicId && userId && sessionId ? (
                   <ChatWidget
                     tenant={{
                       ...TENANTS[0],
@@ -212,6 +258,8 @@ const App: React.FC = () => {
                     }}
                     userInfo={userInfo}
                     initialTopicId={initialTopicId}
+                    userId={userId}
+                    sessionId={sessionId}
                     onClose={() => setIsChatOpen(false)}
                     onEndSession={handleEndSession}
                   />

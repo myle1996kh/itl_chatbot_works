@@ -32,6 +32,7 @@ class Tenant(Base):
     llm_config = relationship("TenantLLMConfig", back_populates="tenant", uselist=False)
     widget_config = relationship("TenantWidgetConfig", back_populates="tenant", uselist=False)
     users = relationship("User", back_populates="tenant")
+    chat_users = relationship("ChatUser", back_populates="tenant")
 
     def __repr__(self):
         return f"<Tenant(tenant_id={self.tenant_id}, name={self.name}, status={self.status})>"

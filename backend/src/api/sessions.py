@@ -1,14 +1,24 @@
 """Session management API endpoints."""
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_
+import uuid
+
 from src.config import get_db
 from src.models.session import ChatSession
 from src.models.message import Message
 from src.models.tenant import Tenant
-from src.schemas.chat import SessionSummary, SessionDetail
+from src.models.chat_user import ChatUser
+from src.schemas.chat import (
+    SessionSummary,
+    SessionDetail,
+    SessionCreateRequest,
+    SessionCreateResponse,
+    SessionEndRequest,
+    SessionEndResponse,
+)
 from src.middleware.auth import get_current_tenant
 from src.utils.logging import get_logger
 
@@ -89,17 +99,28 @@ async def list_sessions(
                     else last_message.content
                 )
 
+            # Ensure metadata is a plain dict (not SQLAlchemy object)
+            metadata_dict = {}
+            if session.session_metadata:
+                if isinstance(session.session_metadata, dict):
+                    metadata_dict = session.session_metadata
+                else:
+                    try:
+                        metadata_dict = dict(session.session_metadata)
+                    except (TypeError, ValueError):
+                        metadata_dict = {}
+
             summaries.append(
                 SessionSummary(
-                    session_id=session.session_id,
-                    user_id=session.user_id,
+                    session_id=str(session.session_id),
+                    user_id=str(session.user_id),
                     created_at=session.created_at,
                     last_message_at=session.last_message_at,
                     message_count=message_count,
                     last_message_preview=last_message_preview,
                     escalation_status=session.escalation_status,
                     assigned_supporter_id=str(session.assigned_user_id) if session.assigned_user_id else None,
-                    metadata=session.session_metadata,
+                    metadata=metadata_dict,
                 )
             )
 
@@ -169,16 +190,26 @@ async def get_session(
         )
 
         # Build message list
-        message_list = [
-            {
-                "message_id": msg.message_id,
+        message_list = []
+        for msg in messages:
+            # Ensure message metadata is a plain dict (not SQLAlchemy object)
+            msg_metadata_dict = {}
+            if msg.metadata:
+                if isinstance(msg.metadata, dict):
+                    msg_metadata_dict = msg.metadata
+                else:
+                    try:
+                        msg_metadata_dict = dict(msg.metadata)
+                    except (TypeError, ValueError):
+                        msg_metadata_dict = {}
+
+            message_list.append({
+                "message_id": str(msg.message_id),
                 "role": msg.role,
                 "content": msg.content,
                 "created_at": msg.created_at.isoformat(),
-                "metadata": msg.metadata,
-            }
-            for msg in messages
-        ]
+                "metadata": msg_metadata_dict,
+            })
 
         logger.info(
             "session_retrieved",
@@ -187,16 +218,27 @@ async def get_session(
             message_count=len(message_list),
         )
 
+        # Ensure metadata is a plain dict (not SQLAlchemy object)
+        metadata_dict = {}
+        if session.session_metadata:
+            if isinstance(session.session_metadata, dict):
+                metadata_dict = session.session_metadata
+            else:
+                try:
+                    metadata_dict = dict(session.session_metadata)
+                except (TypeError, ValueError):
+                    metadata_dict = {}
+
         return SessionDetail(
-            session_id=session.session_id,
-            tenant_id=session.tenant_id,
-            user_id=session.user_id,
-            agent_id=session.agent_id,
+            session_id=str(session.session_id),
+            tenant_id=str(session.tenant_id),
+            user_id=str(session.user_id),
+            agent_id=str(session.agent_id) if session.agent_id else None,
             thread_id=session.thread_id,
             created_at=session.created_at,
             last_message_at=session.last_message_at,
             messages=message_list,
-            metadata=session.session_metadata,
+            metadata=metadata_dict,
         )
 
     except HTTPException:
@@ -204,6 +246,156 @@ async def get_session(
     except Exception as e:
         logger.error(
             "get_session_error",
+            tenant_id=tenant_id,
+            session_id=session_id,
+            error=str(e),
+        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post("/{tenant_id}/sessions", response_model=SessionCreateResponse)
+async def create_session(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    user_id: str = Query(..., description="Chat user UUID"),
+    request: Optional[SessionCreateRequest] = Body(None),
+    db: Session = Depends(get_db),
+    current_tenant: Optional[str] = Depends(get_current_tenant),
+) -> SessionCreateResponse:
+    """
+    Create a new chat session for a chat user.
+
+    Called before first message to initialize a session.
+    Returns the new session_id to use for subsequent messages.
+    """
+    try:
+        # Validate tenant exists
+        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        # Validate chat user exists
+        chat_user = (
+            db.query(ChatUser).filter(
+                and_(
+                    ChatUser.tenant_id == tenant_id,
+                    ChatUser.user_id == user_id,
+                )
+            ).first()
+        )
+
+        if not chat_user:
+            raise HTTPException(status_code=404, detail="Chat user not found")
+
+        # Create new session
+        new_session_id = str(uuid.uuid4())
+        thread_id = f"tenant_{tenant_id}__user_{user_id}__session_{new_session_id}"
+
+        metadata = {}
+        if request and request.topic:
+            metadata["topic"] = request.topic
+        if request and request.metadata:
+            metadata.update(request.metadata)
+
+        session = ChatSession(
+            session_id=new_session_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            session_metadata=metadata,
+        )
+
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+
+        logger.info(
+            "session_created",
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_id=new_session_id,
+        )
+
+        return SessionCreateResponse(
+            session_id=str(session.session_id),
+            user_id=str(session.user_id),
+            tenant_id=str(session.tenant_id),
+            created_at=session.created_at,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "create_session_error",
+            tenant_id=tenant_id,
+            user_id=user_id,
+            error=str(e),
+        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.patch("/{tenant_id}/sessions/{session_id}", response_model=SessionEndResponse)
+async def end_session(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    session_id: str = Path(..., description="Session UUID"),
+    request: Optional[SessionEndRequest] = Body(None),
+    db: Session = Depends(get_db),
+    current_tenant: Optional[str] = Depends(get_current_tenant),
+) -> SessionEndResponse:
+    """
+    End a chat session and mark it as resolved.
+
+    Saves all conversation memory and marks escalation_status as 'resolved'.
+    Next chat will require a new session_id.
+    """
+    try:
+        # Validate tenant exists
+        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        # Query session
+        session = (
+            db.query(ChatSession).filter(
+                and_(
+                    ChatSession.session_id == session_id,
+                    ChatSession.tenant_id == tenant_id,
+                )
+            ).first()
+        )
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Mark session as resolved/closed
+        session.escalation_status = "resolved"
+        if request and request.feedback:
+            # Store feedback in metadata
+            if session.session_metadata is None:
+                session.session_metadata = {}
+            session.session_metadata["feedback"] = request.feedback
+            session.session_metadata["feedback_at"] = datetime.utcnow().isoformat()
+
+        db.commit()
+
+        logger.info(
+            "session_ended",
+            tenant_id=tenant_id,
+            session_id=session_id,
+            user_id=session.user_id,
+        )
+
+        return SessionEndResponse(
+            session_id=str(session.session_id),
+            escalation_status=session.escalation_status,
+            message="Session ended successfully. All messages saved.",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "end_session_error",
             tenant_id=tenant_id,
             session_id=session_id,
             error=str(e),

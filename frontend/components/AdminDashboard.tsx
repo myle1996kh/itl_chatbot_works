@@ -7,7 +7,7 @@ import { uploadDocument, getKnowledgeBaseStats, ingestTexts } from '../services/
 import { AGENT_NAMES } from '../src/config/topic-agent-mapping';
 import { getCurrentUser, logout, isAdmin, isStaff, type LoginResponse } from '../services/authService';
 import { getEscalationQueue, assignSupporter as assignSupporterToEscalation, resolveEscalation, getSupporters, escalateSession, type EscalationResponse, type Supporter as EscalationSupporter } from '../services/escalationService';
-import { getSessionsWithFallback, getSessionDetail, sendSupporterMessage, type SessionSummary, type SessionDetail } from '../services/sessionService';
+import { getSessionsWithFallback, getSessionDetail, getSessionDetailPublic, sendSupporterMessage, type SessionSummary, type SessionDetail } from '../services/sessionService';
 import { getTenants as getTenantsFromBackend, getSupporters as getSupportersFromBackend, listUsers, listTenantUsers, createSupporter, updateSupporter, deleteSupporter } from '../services/adminService';
 import { ChatBubbleIcon, DocumentIcon, ExtractIcon, KnowledgeBaseIcon, UploadIcon, XCircleIcon } from './icons';
 import Markdown from 'react-markdown';
@@ -207,7 +207,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
         sessions = sessionsData.map((summary: SessionSummary) => ({
           id: summary.session_id,
           tenantId: filterTenantId,
-          userEmail: summary.user_id,
+          userEmail: summary.user_email || summary.user_id,
+          userName: summary.user_name,
           messages: [], // Messages loaded on demand
           assignedSupporterId: summary.assigned_supporter_id || null,
           escalationStatus: summary.escalation_status,
@@ -294,7 +295,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
       }
 
       try {
-        const sessionDetail = await getSessionDetail(selectedSession.tenantId, selectedSession.id);
+        // Use public endpoint for supporters, admin endpoint for admins
+        const sessionDetail = currentUser
+          ? await getSessionDetailPublic(selectedSession.tenantId, selectedSession.id)
+          : await getSessionDetail(selectedSession.tenantId, selectedSession.id);
         if (sessionDetail) {
           // Update selectedSession with full message data
           setSelectedSession(prev => {
@@ -510,7 +514,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
     return AGENT_NAMES.GUIDELINE;
   };
 
-  const handleEnrichment = async (topic: Topic) => {
+  const handleEnrichment = async (topic?: Topic) => {
     try {
       const messagesToEnrich = Object.values(selectedMessages).map(m => ({ text: m.text, sender: m.sender }));
       const tenant = findTenant(selectedSession!.tenantId, tenants)!;
@@ -521,29 +525,58 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
           .map(m => `${m.sender === 'user' ? 'User' : m.sender === 'ai' ? 'Agent' : 'Supporter'}: ${m.text}`)
           .join('\n\n');
 
-        const documentName = `Enriched from chat (${new Date().toLocaleString()})`;
-        const agentName = mapTopicToAgent(topic);
-        const meta = [{
-          source: 'conversation',
-          source_detail: 'admin_enrich',
-          topic_id: topic.id,
-          topic_name: topic.name,
-          agent_name: agentName,
-          document_name: documentName,
+        const documentName = `Chat History - ${new Date().toLocaleString()}`;
+
+        // Create text file blob for upload-document endpoint
+        // This will be chunked & processed like a regular document upload
+        const blob = new Blob([conversationText], { type: 'text/plain' });
+        const formData = new FormData();
+        formData.append('file', blob, `${selectedSession!.id}-enrichment.txt`);
+        formData.append('document_name', documentName);
+
+        console.log('📚 Enriching knowledge base from chat history:', {
           session_id: selectedSession!.id,
           messages_count: messagesToEnrich.length,
-        }];
+          tenant_id: tenant.id,
+          endpoint: '/knowledge/upload-document',
+        });
 
-        const result = await ingestTexts(tenant.id, [conversationText], meta, jwtToken);
-        if (!result.success) {
-          throw new Error(result.error || 'Failed to ingest enriched text');
+        // Upload to /knowledge/upload-document endpoint
+        // Backend will: Extract → Chunk → Embed → Store with metadata
+        const response = await fetch(
+          `http://localhost:8000/api/admin/tenants/${tenant.id}/knowledge/upload-document`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: jwtToken ? `Bearer ${jwtToken}` : '',
+            },
+            body: formData,
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || `HTTP ${response.status}: Failed to enrich knowledge base`);
         }
+
+        const result = await response.json();
+        console.log('✅ Chat history enriched successfully:', {
+          document_name: result.document_name,
+          chunk_count: result.chunk_count,
+          document_ids: result.document_ids,
+        });
+
+        alert(`✅ Knowledge base enriched!\n\n${result.chunk_count} chunks created from ${messagesToEnrich.length} messages`);
       } else {
         // Local-only fallback (no JWT): store in localStorage
-        enrichKnowledgeBaseFromChat(tenant, topic, messagesToEnrich);
+        if (topic) {
+          enrichKnowledgeBaseFromChat(tenant, topic, messagesToEnrich);
+          alert('✅ Knowledge base enriched locally!');
+        }
       }
     } catch (e: any) {
-      console.error('Enrichment failed:', e);
+      console.error('❌ Enrichment failed:', e);
+      alert(`Failed to enrich knowledge base: ${e.message || 'Unknown error'}`);
     } finally {
       setShowEnrichModal(false);
       setSelectedMessages({});
@@ -568,10 +601,34 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
 
     setSelectedSession(prev => prev ? { ...prev, messages: [...(prev.messages || []), newMessage] } : null);
 
-    // Send to backend
+    // Send to backend using NEW admin endpoint (bypasses escalation requirement)
     try {
-      await sendSupporterMessage(selectedSession.tenantId, selectedSession.id, messageText);
-      console.log('✓ Message sent to backend');
+      const response = await fetch(
+        `http://localhost:8000/api/tenants/${selectedSession.tenantId}/supporter-chat`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: jwtToken ? `Bearer ${jwtToken}` : '',
+          },
+          body: JSON.stringify({
+            session_id: selectedSession.id,
+            message: messageText,
+            sender_user_id: authenticatedUser?.user_id,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to send message');
+      }
+
+      const responseData = await response.json();
+      console.log('✅ Message sent to backend via supporter-chat endpoint', {
+        message_id: responseData.message_id,
+        session_id: responseData.session_id,
+      });
     } catch (error) {
       console.error('Failed to send message:', error);
       // Keep the message in UI anyway (it was already displayed optimistically)
@@ -744,7 +801,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
                 <ul className="divide-y divide-gray-200 h-[calc(100vh-18rem)] overflow-y-auto">
                 {filteredSessions.map(session => (
                     <li key={session.id} onClick={() => setSelectedSession(session)} className={`p-4 hover:bg-gray-50 cursor-pointer ${selectedSession?.id === session.id ? 'bg-indigo-50' : ''}`}>
-                    <div className="font-semibold text-gray-800">{session.userEmail}</div>
+                    <div className="font-semibold text-gray-800">{(session as any).userName || session.userEmail || 'Unknown'}</div>
+                    <div className="text-xs text-gray-600">{session.userEmail}</div>
                     <div className="text-sm text-gray-500">Tenant: {findTenant(session.tenantId, tenants)?.name}</div>
                     <div className="text-xs text-gray-400">Last message: {new Date(session.lastActivity).toLocaleString()}</div>
                     </li>
@@ -756,7 +814,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
                 <>
                 <div className="p-4 border-b flex justify-between items-center">
                     <div>
-                        <h2 className="text-lg font-semibold">{selectedSession.userEmail}</h2>
+                        <h2 className="text-lg font-semibold">{(selectedSession as any).userName || selectedSession.userEmail || 'Unknown'}</h2>
+                        <p className="text-sm text-gray-600 mb-1">{selectedSession.userEmail}</p>
                         {selectedSession.assignedSupporterId ? (
                           <p className="text-sm text-green-600 font-medium">
                             ✓ Assigned to @{findSupporter(selectedSession.assignedSupporterId, supporters)?.name || 'Unknown'}
@@ -876,15 +935,49 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
                         </p>
                      </div>
                  </div>
-                 <h3 className="font-semibold text-lg mb-2">Documents for "{mockAgents.find(a => a.id === kbAgent)?.name || kbAgent}"</h3>
-                 <div className="border rounded-lg p-4 h-96 overflow-y-auto bg-gray-50 space-y-3">
-                    {knowledgeDocs.length > 0 ? knowledgeDocs.map(doc => (
-                        <div key={doc.id} className="p-3 bg-white border rounded-md">
-                            <p className="font-semibold text-gray-700 flex items-center gap-2"><DocumentIcon className="h-5 w-5"/>{doc.fileName}</p>
-                            <p className="text-xs text-gray-500 mt-1">Uploaded: {new Date(doc.uploadedAt).toLocaleString()}</p>
-                            <pre className="mt-2 text-sm bg-gray-100 p-2 rounded whitespace-pre-wrap font-mono">{doc.content.substring(0, 200)}...</pre>
+                 <h3 className="font-semibold text-lg mb-2">Knowledge Base Status for "{mockAgents.find(a => a.id === kbAgent)?.name || kbAgent}"</h3>
+                 <div className="border rounded-lg p-4 bg-gray-50">
+                    {useBackendKnowledge && jwtToken ? (
+                        <div className="space-y-4">
+                            {/* Knowledge Base Stats Block */}
+                            <div className="bg-white border border-indigo-200 rounded-lg p-4">
+                                <h4 className="font-semibold text-indigo-700 mb-3 flex items-center gap-2">
+                                    <DocumentIcon className="h-5 w-5" />
+                                    Collection: {kbStats?.collection_name || 'Loading...'}
+                                </h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-indigo-50 rounded-md p-3">
+                                        <p className="text-xs text-gray-600 mb-1">Total Documents</p>
+                                        <p className="text-2xl font-bold text-indigo-600">{kbStats?.document_count || 0}</p>
+                                    </div>
+                                    <div className="bg-blue-50 rounded-md p-3">
+                                        <p className="text-xs text-gray-600 mb-1">Status</p>
+                                        <p className="text-sm font-semibold text-blue-600 mt-2">
+                                            {kbStats && kbStats.document_count > 0 ? '✅ Active' : '⚠️ Empty'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Usage Guide */}
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                <p className="text-xs text-blue-900">
+                                    <strong>How to add documents:</strong>
+                                </p>
+                                <ul className="text-xs text-blue-800 mt-2 space-y-1 ml-4 list-disc">
+                                    <li>Upload PDF, DOCX, or DOC files above</li>
+                                    <li>Or select messages from chat history and click "Enrich Knowledge Base"</li>
+                                    <li>Documents are chunked, embedded, and stored in pgvector</li>
+                                    <li>Agents will use these documents for RAG retrieval</li>
+                                </ul>
+                            </div>
                         </div>
-                    )) : <p className="text-gray-500">No documents uploaded for this topic yet.</p>}
+                    ) : (
+                        <div className="text-center py-8 text-gray-500">
+                            <p className="mb-2">Using local knowledge base (no backend connection)</p>
+                            <p className="text-xs">{knowledgeDocs.length} documents loaded locally</p>
+                        </div>
+                    )}
                  </div>
             </div>
         )}
@@ -1284,13 +1377,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
       {showEnrichModal && selectedSession && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-30">
             <div className="bg-white rounded-lg p-6 w-full max-w-md">
-                <h2 className="text-lg font-bold mb-4">Select Topic for Enrichment</h2>
-                <div className="space-y-2">
-                    {findTenant(selectedSession.tenantId, tenants)?.topics.map(topic => (
-                        <button key={topic.id} onClick={() => handleEnrichment(topic)} className="w-full text-left p-3 border rounded-md hover:bg-gray-100">{topic.name}</button>
-                    ))}
+                <h2 className="text-lg font-bold mb-4">Enrich Knowledge Base</h2>
+                <p className="text-gray-600 mb-4 text-sm">
+                  This will add the selected {Object.keys(selectedMessages).length} messages from this chat to the knowledge base.
+                </p>
+                <p className="text-gray-600 mb-6 text-sm">
+                  <strong>Processing:</strong> Messages will be chunked and embedded for RAG retrieval.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowEnrichModal(false)}
+                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleEnrichment()}
+                    className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 font-medium"
+                  >
+                    Enrich Knowledge Base
+                  </button>
                 </div>
-                <button onClick={() => setShowEnrichModal(false)} className="mt-4 w-full text-center p-2 bg-gray-200 rounded-md">Cancel</button>
             </div>
         </div>
       )}

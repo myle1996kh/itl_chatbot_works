@@ -19,7 +19,7 @@ class ChatSession(Base):
 
     session_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)  # Fixed: Proper UUID FK to users table
+    user_id = Column(UUID(as_uuid=True), ForeignKey("chat_users.user_id"), nullable=False)  # FK to chat_users table (customers)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agent_configs.agent_id"))
     thread_id = Column(String(500))  # LangGraph thread ID
     created_at = Column(TIMESTAMP, nullable=False, default=datetime.utcnow)
@@ -35,8 +35,8 @@ class ChatSession(Base):
 
     # Relationships
     tenant = relationship("Tenant", back_populates="sessions")
-    user = relationship("User", foreign_keys=[user_id], back_populates="sessions")
-    assigned_user = relationship("User", foreign_keys=[assigned_user_id])
+    chat_user = relationship("ChatUser", foreign_keys=[user_id], back_populates="sessions")
+    assigned_user = relationship("User", foreign_keys=[assigned_user_id])  # Staff/supporter assigned for escalation
     agent = relationship("AgentConfig")
     messages = relationship("Message", back_populates="session")
 

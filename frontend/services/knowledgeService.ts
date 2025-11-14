@@ -135,8 +135,8 @@ export async function uploadDocument(
       };
     }
 
-    // Validate file size (max 10MB)
-    const maxSizeMB = 10;
+    // Validate file size (max 80MB)
+    const maxSizeMB = 80;
     if (params.file.size > maxSizeMB * 1024 * 1024) {
       return {
         success: false,

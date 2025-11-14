@@ -33,7 +33,6 @@ class User(Base):
 
     # Relationships
     tenant = relationship("Tenant", back_populates="users")
-    sessions = relationship("ChatSession", foreign_keys="ChatSession.user_id", back_populates="user")
 
     # Support profile (for escalation assignment)
     supporter_status = Column(String(50), default='offline')  # 'online', 'offline', 'busy', 'away'

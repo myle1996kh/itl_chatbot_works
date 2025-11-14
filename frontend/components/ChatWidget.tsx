@@ -12,17 +12,19 @@ interface ChatWidgetProps {
   tenant: Tenant;
   userInfo: UserInfo;
   initialTopicId: string;
+  userId: string;  // Chat user UUID (not email!)
+  sessionId: string;  // Initial session ID
   onClose: () => void;
   onEndSession: () => void;
 }
 
-const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicId, onClose, onEndSession }) => {
+const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicId, userId, sessionId: initialSessionId, onClose, onEndSession }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [currentTopic, setCurrentTopic] = useState<Topic | null>(null);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
-  const [sessionId, setSessionId] = useState<string | undefined>();
+  const [sessionId, setSessionId] = useState<string>(initialSessionId);
   const [isEscalated, setIsEscalated] = useState(false);
   const [escalationStatus, setEscalationStatus] = useState<'none' | 'pending' | 'assigned' | 'resolved'>('none');
   const [showEscalationDialog, setShowEscalationDialog] = useState(false);
@@ -63,6 +65,61 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
         console.error("Failed to load or parse chat history", error);
     }
   }, [tenant, userInfo, initialTopicId]);
+
+  // Sync prop to state when initialSessionId changes (parent updated the session)
+  useEffect(() => {
+    if (initialSessionId !== sessionId) {
+      console.log(`📝 Session changed: ${sessionId} → ${initialSessionId}. Clearing messages for fresh start.`);
+      setSessionId(initialSessionId);
+      setMessages([]);
+      localStorage.removeItem(getHistoryKey());
+      localStorage.removeItem(getActiveSessionKey());
+    }
+  }, [initialSessionId]);
+
+  // Poll for new messages periodically (to catch supporter messages from admin)
+  useEffect(() => {
+    // Start polling every 3 seconds for new messages
+    const pollInterval = setInterval(async () => {
+      try {
+        // Fetch session details from backend to get latest messages
+        const response = await fetch(
+          `http://localhost:8000/api/${tenant.id}/session/${sessionId}`,
+          {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          // Check if there are new messages
+          if (data.messages && Array.isArray(data.messages)) {
+            // Transform backend messages to our format
+            const backendMessages = data.messages.map((msg: any) => ({
+              id: msg.message_id || `msg-${Math.random()}`,
+              text: msg.content,
+              sender: msg.role === 'user' ? 'user' : msg.role === 'assistant' ? 'ai' : 'supporter',
+              timestamp: msg.created_at || new Date().toISOString(),
+            }));
+
+            // Always update with latest messages from backend for this session
+            // (prevents message carryover when session changes)
+            console.log(`✅ Fetched ${backendMessages.length} messages from backend (was ${messages.length})`);
+            setMessages(backendMessages);
+            // Update localStorage
+            try {
+              localStorage.setItem(getHistoryKey(), JSON.stringify({ messages: backendMessages }));
+            } catch {}
+          }
+        }
+      } catch (error) {
+        // Silently ignore polling errors (not critical)
+      }
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [sessionId, tenant.id]);
 
   useEffect(() => {
     // Save chat history whenever it changes
@@ -110,7 +167,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
         message: messageText,
         tenantId: tenant.id,
         sessionId: newSessionId,
-        userId: userInfo.email,
+        userId: userId,  // Use UUID, not email!
         agentName: agentName, // Phase 1: Direct routing
       });
 

@@ -266,6 +266,66 @@ class DocumentProcessor:
             )
             raise
 
+    def load_txt(self, txt_path: str) -> List[Document]:
+        """
+        Load TXT file and return LangChain documents (split by paragraphs).
+
+        Useful for enriching knowledge base from chat history transcripts.
+
+        Args:
+            txt_path: Path to TXT file
+
+        Returns:
+            List of Document objects with page_content and metadata
+
+        Metadata includes:
+            - source: TXT file path
+            - file_type: '.txt'
+        """
+        try:
+            # Validate file exists
+            if not Path(txt_path).exists():
+                raise FileNotFoundError(f"TXT file not found: {txt_path}")
+
+            logger.info("loading_txt", txt_path=txt_path)
+
+            # Read text file
+            with open(txt_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Split by double newlines (paragraphs)
+            paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
+
+            # Create LangChain documents (one per paragraph)
+            documents = []
+            for i, para in enumerate(paragraphs):
+                document = Document(
+                    page_content=para,
+                    metadata={
+                        'source': txt_path,
+                        'file_type': '.txt',
+                        'paragraph_index': i,
+                    }
+                )
+                documents.append(document)
+
+            logger.info(
+                "txt_loaded_successfully",
+                txt_path=txt_path,
+                paragraph_count=len(documents),
+                total_chars=sum(len(doc.page_content) for doc in documents)
+            )
+
+            return documents
+
+        except Exception as e:
+            logger.error(
+                "txt_load_failed",
+                txt_path=txt_path,
+                error=str(e)
+            )
+            raise
+
     def chunk_documents(
         self,
         documents: List[Document],
@@ -512,9 +572,10 @@ class DocumentProcessor:
         Supports:
             - .pdf: Uses PyPDFLoader
             - .docx/.doc: Uses python-docx with section tracking
+            - .txt: Plain text split by paragraphs (useful for chat history enrichment)
 
         Args:
-            file_path: Path to document file (.pdf, .docx, or .doc)
+            file_path: Path to document file (.pdf, .docx, .doc, or .txt)
             tenant_id: Tenant UUID
             additional_metadata: Optional metadata to add to all chunks
 
@@ -551,10 +612,12 @@ class DocumentProcessor:
                 documents = self.load_pdf(file_path)
             elif file_ext in ['.docx', '.doc']:
                 documents = self.load_docx(file_path)
+            elif file_ext == '.txt':
+                documents = self.load_txt(file_path)
             else:
                 raise ValueError(
                     f"Unsupported file format: {file_ext}. "
-                    f"Supported formats: .pdf, .docx, .doc"
+                    f"Supported formats: .pdf, .docx, .doc, .txt"
                 )
 
             # 2. Chunk documents (preserves metadata including section_title)
