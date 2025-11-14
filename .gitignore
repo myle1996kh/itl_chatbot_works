@@ -70,6 +70,8 @@ backend/.env.*
 .secret/
 *.key
 *.pem
+backend/setup/ETMS_CONFIGURATION.md
+backend/setup/UPDATES_APPLIED.md
 
 # Databases and media
 *.sqlite3
