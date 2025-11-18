@@ -1,0 +1,25 @@
+meta {
+  name: List User Sessions
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/:tenant_id/chat_users/:user_id/sessions
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~limit: 
+  ~offset: 
+}
+
+params:path {
+  tenant_id: 
+  user_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

@@ -4,8 +4,8 @@
 # Database Configuration
 database:
   # Override these for different environments
-  # Default: PostgreSQL on localhost:5432
-  url: "postgresql://postgres:123456@localhost:5432/chatbot_itl"
+  # Default: PostgreSQL on 172.23.178.103:32001
+  url: "postgresql://postgres:Postgres123!@172.23.178.103:32001/chatbot"
   # Alternative formats:
   # url: "postgresql://user:password@host:port/database"
   pool_size: 20

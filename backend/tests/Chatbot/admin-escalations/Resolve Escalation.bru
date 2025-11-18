@@ -1,0 +1,26 @@
+meta {
+  name: Resolve Escalation
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/escalations/resolve
+  body: json
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "session_id": "",
+    "resolution_notes": ""
+  }
+}

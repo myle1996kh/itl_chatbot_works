@@ -1,0 +1,19 @@
+meta {
+  name: Get Available Staff
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/staff/available
+  body: none
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

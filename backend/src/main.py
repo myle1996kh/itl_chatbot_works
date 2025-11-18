@@ -13,6 +13,8 @@ from src.config import settings
 from src.utils.logging import configure_logging, get_logger
 from src.utils.exceptions import SecurityError
 import redis
+from sqlalchemy import text
+from src.config import engine
 
 # Import ALL models to ensure SQLAlchemy relationships are properly registered
 # This must be done before any database operations
@@ -162,9 +164,18 @@ async def shutdown_event():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint with basic DB connectivity test."""
+    db_status = "up"
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception as e:
+        db_status = "down"
+        logger.error("health_check_db_failed", error=str(e))
+
     return {
-        "status": "healthy",
+        "status": "healthy" if db_status == "up" else "degraded",
+        "database": db_status,
         "environment": settings.ENVIRONMENT,
         "version": "0.1.0"
     }

@@ -223,7 +223,7 @@ alembic history
 
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | Yes | `postgresql://postgres:123456@localhost:5432/chatbot_db` |
+| `DATABASE_URL` | PostgreSQL connection string | Yes | `"postgresql://postgres:Postgres123!@172.23.178.103:32001/chatbot` |
 | `REDIS_URL` | Redis connection string | Yes | `redis://localhost:6379` |
 | `JWT_PUBLIC_KEY` | RS256 public key for JWT validation | Yes | - |
 | `FERNET_KEY` | Encryption key for API keys | Yes | - |

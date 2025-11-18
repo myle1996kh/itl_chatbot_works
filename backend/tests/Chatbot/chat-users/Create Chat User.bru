@@ -1,0 +1,27 @@
+meta {
+  name: Create Chat User
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/:tenant_id/chat_users
+  body: json
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "email": "",
+    "username": "",
+    "department": ""
+  }
+}

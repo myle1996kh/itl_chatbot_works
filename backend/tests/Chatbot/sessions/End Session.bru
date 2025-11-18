@@ -1,0 +1,20 @@
+meta {
+  name: End Session
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/api/:tenant_id/sessions/:session_id
+  body: json
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+  session_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

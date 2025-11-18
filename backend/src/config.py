@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # Database Configuration
-    DATABASE_URL: str = Field(default="postgresql://postgres:123456@localhost:5432/chatbot_itl")
+    DATABASE_URL: str = Field(default="postgresql://postgres:Postgres123!@172.23.178.103:32001/chatbot")
     DB_POOL_SIZE: int = Field(default=20)
     DB_MAX_OVERFLOW: int = Field(default=10)
 
@@ -34,14 +34,14 @@ class Settings(BaseSettings):
     # Development Auth Toggle (Get User Token Bypass - Tạm thời False để test)
     # When true, JWT auth can be bypassed for specific dependencies
     # intended for local testing only.
-    DISABLE_AUTH: bool = Field(default=False)
+    DISABLE_AUTH: bool = Field(default=True)
 
     # Test Bearer Token for External API Calls
     # Used when DISABLE_AUTH=true for HTTP tool requests to external APIs
     TEST_BEARER_TOKEN: str = Field(default="")
 
     # CORS Settings
-    CORS_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:8080")
+    CORS_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:8080")
 
     # Rate Limiting
     DEFAULT_RATE_LIMIT_RPM: int = Field(default=60)

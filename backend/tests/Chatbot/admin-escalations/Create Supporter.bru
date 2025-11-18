@@ -1,0 +1,26 @@
+meta {
+  name: Create Supporter
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/supporters
+  body: json
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "user_id": "",
+    "max_concurrent_sessions": ""
+  }
+}

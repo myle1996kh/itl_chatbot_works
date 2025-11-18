@@ -1,0 +1,24 @@
+meta {
+  name: List Tenant Sessions
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/sessions
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~limit: 
+  ~offset: 
+}
+
+params:path {
+  tenant_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

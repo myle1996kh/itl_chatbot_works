@@ -1,0 +1,27 @@
+meta {
+  name: Update Supporter
+  type: http
+  seq: 9
+}
+
+put {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/supporters/:supporter_id
+  body: json
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+  supporter_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "status": "",
+    "max_concurrent_sessions": ""
+  }
+}

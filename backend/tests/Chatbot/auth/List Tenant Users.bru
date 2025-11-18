@@ -1,0 +1,25 @@
+meta {
+  name: List Tenant Users
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/auth/users/tenant/:tenant_id
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~role: 
+  ~skip: 
+  ~limit: 
+}
+
+params:path {
+  tenant_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

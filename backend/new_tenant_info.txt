@@ -1,3 +1,0 @@
-Tenant ID: 1193a40f-1d03-4ecd-a601-901a55589f56
-Name: eTMS_V1
-Domain: etms-v1.local

@@ -1,0 +1,20 @@
+meta {
+  name: Get Chat User By Email
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/:tenant_id/chat_users/:email
+  body: none
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+  email: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
