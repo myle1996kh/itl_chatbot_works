@@ -4,7 +4,6 @@ from typing import Optional, Dict, Any, List
 from uuid import UUID
 from datetime import datetime
 
-
 class ChatRequest(BaseModel):
     """Request schema for chat endpoint."""
 
@@ -29,7 +28,7 @@ class ToolCallInfo(BaseModel):
     tool_name: str = Field(..., description="Name of the tool that was called")
     tool_args: Dict[str, Any] = Field(..., description="Arguments passed to the tool")
     tool_id: str = Field(..., description="Unique identifier for this tool call")
-
+    output: Optional[Dict[str, Any]] = Field(None, description="Tool execution output")
 
 class ResponseMetadata(BaseModel):
     """Extended metadata for chat responses."""

@@ -322,6 +322,9 @@ For each tool:
                                     agent_name=self.agent_config.name,
                                     result_type=type(tool_result).__name__
                                 )
+                                
+                                tool_info["output"] = tool_result
+
                             else:
                                 logger.warning(
                                     "tool_not_found",

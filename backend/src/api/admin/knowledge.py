@@ -338,25 +338,3 @@ async def upload_document(
             detail=f"Failed to upload document: {str(e)}"
         )
 
-
-@router.post("/tenants/{tenant_id}/knowledge/upload-pdf", response_model=PDFUploadResponse)
-async def upload_pdf(
-    tenant_id: str = Path(..., description="Tenant UUID"),
-    file: UploadFile = File(..., description="PDF file to upload"),
-    document_name: str = Form(None, description="Optional document name"),
-    db: Session = Depends(get_db),
-    admin_payload: dict = Depends(require_admin_role),
-) -> PDFUploadResponse:
-    """
-    Upload and process a PDF file into tenant's knowledge base.
-
-    DEPRECATED: Use /upload-document instead for universal file support (PDF, DOCX).
-    This endpoint is kept for backward compatibility.
-
-    Requires admin role in JWT.
-    """
-    logger.warning(
-        "upload_pdf_deprecated",
-        message="upload_pdf endpoint is deprecated, use upload_document instead"
-    )
-    return await upload_document(tenant_id, file, document_name, db, admin_payload)
