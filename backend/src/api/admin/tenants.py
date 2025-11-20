@@ -10,6 +10,9 @@ from src.models.tenant import Tenant
 from src.models.agent import AgentConfig
 from src.models.tool import ToolConfig
 from src.models.permissions import TenantAgentPermission, TenantToolPermission
+from src.models.tenant_llm_config import TenantLLMConfig
+from src.models.llm_model import LLMModel
+from src.utils.encryption import encrypt_api_key
 from src.schemas.admin import (
     TenantPermissionsResponse,
     PermissionUpdateRequest,
@@ -56,6 +59,36 @@ class TenantListResponse(BaseModel):
     total: int
     tenants: List[TenantResponse]
 
+# FULL TENANT CREATION SCHEMAS
+class LLMConfigCreate(BaseModel):
+    """LLM configuration for tenant creation."""
+    provider: str = Field(..., description="LLM provider (openrouter, google, openai)")
+    model_name: str = Field(..., description="Model name")
+    api_key: str = Field(..., description="API key - will be encrypted")
+    rate_limit_rpm: int = Field(default=60)
+    rate_limit_tpm: int = Field(default=10000)
+
+
+class TenantFullCreateRequest(BaseModel):
+    """Create tenant with all configurations."""
+    name: str = Field(..., min_length=1, max_length=255)
+    domain: str = Field(..., min_length=1, max_length=255)
+    status: str = Field(default="active")
+    llm_config: LLMConfigCreate
+    agent_ids: List[str] = Field(default=[], description="Agent IDs to enable")
+    tool_ids: List[str] = Field(default=[], description="Tool IDs to enable")
+
+
+class TenantFullResponse(BaseModel):
+    """Response for full tenant creation."""
+    tenant_id: str
+    name: str
+    domain: str
+    status: str
+    llm_config_id: str
+    enabled_agents: int
+    enabled_tools: int
+    created_at: Optional[datetime] = None
 
 # ============================================================================
 # TENANT CRUD ENDPOINTS
@@ -608,3 +641,110 @@ async def update_tenant_permissions(
             status_code=500,
             detail=f"Failed to update tenant permissions: {str(e)}"
         )
+
+# ============================================================================
+# FULL TENANT CREATION ENDPOINT
+# ============================================================================
+
+@router.post("/tenants/create-new", response_model=TenantFullResponse, status_code=201)
+async def create_tenant_full(
+    request: TenantFullCreateRequest,
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> TenantFullResponse:
+    """
+    Create a new tenant with LLM config and permissions in one request.
+    
+    Requires admin role in JWT.
+    """
+    try:
+        # 1. Validate domain doesn't exist
+        existing = db.query(Tenant).filter(Tenant.domain == request.domain).first()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Domain '{request.domain}' already exists")
+        
+        # 2. Validate LLM model exists
+        llm_model = db.query(LLMModel).filter(
+            LLMModel.provider == request.llm_config.provider,
+            LLMModel.model_name == request.llm_config.model_name
+        ).first()
+        
+        if not llm_model:
+            raise HTTPException(
+                status_code=404,
+                detail=f"LLM model not found: {request.llm_config.provider}/{request.llm_config.model_name}"
+            )
+        
+        # 3. Create tenant
+        tenant_id = uuid.uuid4()
+        tenant = Tenant(
+            tenant_id=tenant_id,
+            name=request.name,
+            domain=request.domain,
+            status=request.status,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(tenant)
+        
+        # 4. Create LLM config with encrypted API key
+        encrypted_key = encrypt_api_key(request.llm_config.api_key)
+        llm_config = TenantLLMConfig(
+            tenant_id=tenant_id,
+            llm_model_id=llm_model.llm_model_id,
+            encrypted_api_key=encrypted_key,
+            rate_limit_rpm=request.llm_config.rate_limit_rpm,
+            rate_limit_tpm=request.llm_config.rate_limit_tpm,
+        )
+        db.add(llm_config)
+        
+        # 5. Create agent permissions
+        enabled_agents = 0
+        for agent_id in request.agent_ids:
+            if db.query(AgentConfig).filter(AgentConfig.agent_id == agent_id).first():
+                db.add(TenantAgentPermission(
+                    tenant_id=tenant_id,
+                    agent_id=uuid.UUID(agent_id),
+                    enabled=True
+                ))
+                enabled_agents += 1
+        
+        # 6. Create tool permissions
+        enabled_tools = 0
+        for tool_id in request.tool_ids:
+            if db.query(ToolConfig).filter(ToolConfig.tool_id == tool_id).first():
+                db.add(TenantToolPermission(
+                    tenant_id=tenant_id,
+                    tool_id=uuid.UUID(tool_id),
+                    enabled=True
+                ))
+                enabled_tools += 1
+        
+        db.commit()
+        
+        logger.info(
+            "tenant_full_created",
+            admin_user=admin_payload.get("user_id"),
+            tenant_id=str(tenant_id),
+            domain=request.domain,
+            enabled_agents=enabled_agents,
+            enabled_tools=enabled_tools,
+        )
+        
+        return TenantFullResponse(
+            tenant_id=str(tenant_id),
+            name=request.name,
+            domain=request.domain,
+            status=request.status,
+            llm_config_id=str(llm_config.config_id),
+            enabled_agents=enabled_agents,
+            enabled_tools=enabled_tools,
+            created_at=tenant.created_at,
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error("create_tenant_full_error", admin_user=admin_payload.get("user_id"), error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to create tenant: {str(e)}")

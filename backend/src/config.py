@@ -5,7 +5,7 @@ from typing import List
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from redis import asyncio as aioredis
-
+from pathlib import Path
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -72,7 +72,7 @@ class Settings(BaseSettings):
         return v
 
     class Config:
-        env_file = ".env"
+        env_file =  Path(__file__).parent / ".env"
         case_sensitive = True
         extra = "ignore"  # Ignore extra fields from .env
 

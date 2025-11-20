@@ -66,7 +66,7 @@ async def list_tools(
             if base_tool:
                 base_tool_data = {
                     "base_tool_id": str(base_tool.base_tool_id),
-                    "tool_type": base_tool.tool_type,
+                    "tool_type": base_tool.type,
                     "description": base_tool.description,
                 }
 
@@ -137,7 +137,7 @@ async def create_tool(
         # Build response
         base_tool_data = {
             "base_tool_id": str(base_tool.base_tool_id),
-            "tool_type": base_tool.tool_type,
+            "tool_type": base_tool.type,
             "description": base_tool.description,
         }
 
@@ -146,7 +146,7 @@ async def create_tool(
             admin_user=admin_payload.get("user_id"),
             tool_id=str(tool_id),
             tool_name=request.name,
-            base_tool_type=base_tool.tool_type,
+            base_tool_type=base_tool.type,
         )
 
         return ToolResponse(
@@ -197,7 +197,7 @@ async def get_tool(
         if base_tool:
             base_tool_data = {
                 "base_tool_id": str(base_tool.base_tool_id),
-                "tool_type": base_tool.tool_type,
+                "tool_type": base_tool.type,
                 "description": base_tool.description,
             }
 
@@ -264,7 +264,7 @@ async def update_tool(
         if base_tool:
             base_tool_data = {
                 "base_tool_id": str(base_tool.base_tool_id),
-                "tool_type": base_tool.tool_type,
+                "tool_type": base_tool.type,
                 "description": base_tool.description,
             }
 
