@@ -10,7 +10,8 @@
       "Bash(timeout:*)",
       "Bash(python -m py_compile:*)",
       "Bash(ver:*)",
-      "Bash(cmd /c echo Testing CMD)"
+      "Bash(cmd /c echo Testing CMD)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []

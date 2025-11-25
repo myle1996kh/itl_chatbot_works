@@ -1,8 +1,28 @@
 # ITL_chatbot - Product Requirements Document
 
+> **⚠️ OUTDATED DOCUMENT**
+>
+> **Status**: This PRD reflects the original product vision but **does not accurately represent the current implementation**.
+>
+> **For current system information**:
+> - **Backend Code** is the source of truth (see `backend/src/`)
+> - **Setup Guide**: `backend/Guides/BACKEND_SETUP.md`
+> - **Architecture Analysis**: `Documentation/ARCHITECTURE_ANALYSIS.md`
+> - **Developer Guide**: `CLAUDE.md`
+>
+> **Key Differences from PRD**:
+> - Configuration uses `DISABLE_AUTH` (not `disauth_status`)
+> - Admin UI/SPA is minimal/not fully implemented
+> - Backend-first approach; frontend to be developed later
+> - Focus on multi-tenant API, RAG, and agent orchestration
+>
+> **Last Reviewed**: 2025-11-25
+
+---
+
 **Author:** BMad
 **Date:** 2025-11-11
-**Version:** 1.0
+**Version:** 1.0 (Archived)
 
 ---
 

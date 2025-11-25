@@ -17,12 +17,17 @@ def skip_auth_for_cors(request: Request) -> bool:
     """
     return request.method == "OPTIONS"
 
-# ⚠️ IMPORTANT: TEMPORARY AUTH BYPASS FOR TESTING ONLY
-# TODO: REMOVE DISABLE_AUTH BEFORE PUSHING TO GITLAB/PRODUCTION
-# When DISABLE_AUTH=True (testing mode):
+# ⚠️ IMPORTANT: AUTH BYPASS FOR LOCAL DEVELOPMENT ONLY
+# DISABLE_AUTH is protected by 3 security layers:
+#   1. Pydantic validator (config.py:60-73) prevents DISABLE_AUTH=true in production
+#   2. Startup validation (main.py:126-142) shuts down app if misconfigured
+#   3. Runtime checks (below) reject all requests with HTTP 500 if bypassed
+#   4. Default value is False (config.py:39) - auth required unless explicitly disabled in .env
+#
+# When DISABLE_AUTH=True (development only):
 #   - JWT authentication is bypassed
 #   - Returns mock user data for dependencies
-# When DISABLE_AUTH=False (production mode):
+# When DISABLE_AUTH=False (production):
 #   - Full JWT authentication is enforced
 #   - Requires valid Bearer token
 

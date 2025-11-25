@@ -26,7 +26,7 @@ ITL_PGVector/
 │   ├── src/
 │   │   ├── main.py                   # FastAPI app entry point
 │   │   ├── config.py                 # Settings (Pydantic Settings)
-│   │   ├── models/                   # SQLAlchemy ORM models (13 tables)
+│   │   ├── models/                   # SQLAlchemy ORM models (17 models)
 │   │   ├── schemas/                  # Pydantic request/response schemas
 │   │   ├── api/                      # FastAPI route handlers
 │   │   │   ├── chat.py               # Chat endpoint
@@ -39,7 +39,11 @@ ITL_PGVector/
 │   │   │   ├── llm_manager.py        # LLM provider management
 │   │   │   ├── tool_loader.py        # Dynamic tool loading
 │   │   │   ├── embedding_service.py  # Sentence-transformers embedding
-│   │   │   └── conversation_memory.py # Conversation history
+│   │   │   ├── conversation_memory.py # Conversation history
+│   │   │   ├── checkpoint_service.py  # LangGraph checkpoint management
+│   │   │   ├── cache_service.py       # Redis caching layer
+│   │   │   ├── document_processor.py  # PDF/DOCX parsing for RAG
+│   │   │   └── escalation_service.py  # Human escalation workflow
 │   │   ├── tools/                    # Tool implementations
 │   │   │   ├── rag.py                # RAG tool for knowledge retrieval
 │   │   │   └── http.py               # HTTP API tool
@@ -49,20 +53,35 @@ ITL_PGVector/
 │   │   └── utils/                    # Utilities
 │   ├── alembic/                      # Database migrations
 │   │   └── versions/                 # Migration scripts
-│   ├── tests/                        # Test suite
-│   │   ├── unit/                     # Unit tests
-│   │   ├── integration/              # Integration tests
-│   │   ├── e2e/                      # End-to-end tests
-│   │   └── contract/                 # Contract tests
-│   ├── docker-compose.yml            # PostgreSQL + Redis + Backend orchestration
+│   ├── tests/                        # Bruno API tests (.bru files)
+│   │   └── Chatbot/                  # API test collections
+│   │       ├── admin-agents/         # Agent admin tests
+│   │       ├── admin-knowledge/      # Knowledge base tests
+│   │       ├── admin-tools/          # Tool admin tests
+│   │       ├── chat/                 # Chat endpoint tests
+│   │       └── ...                   # Other test collections
+│   ├── Guides/                       # Setup & configuration guides
+│   │   ├── BACKEND_SETUP.md          # How to run backend from scratch
+│   │   ├── TENANT_SETUP_FLOW.md      # Tenant configuration guide
+│   │   └── CONFIGURATION.md          # Environment variables reference
+│   ├── migrations/                   # Custom seed data scripts (optional)
+│   ├── alembic/                      # Database migrations (canonical)
+│   │   └── versions/                 # Migration scripts
+│   ├── docker-compose.yml            # TO BE CREATED (Phase 1)
 │   ├── requirements.txt              # Python dependencies
 │   ├── pyproject.toml                # Project config (black, ruff, pytest, mypy)
 │   ├── alembic.ini                   # Alembic configuration
-│   └── .env.example                  # Environment variable template
-├── notebook_test_pgvector/           # PgVector RAG testing notebook
-│   ├── rag_pgvector.ipynb            # Jupyter notebook for RAG testing
-│   └── docker-compose-pgvector.yml   # Standalone pgvector test environment
-└── Docs/                             # Documentation (moved from Documentation/)
+│   ├── .env.example                  # TO BE CREATED (Phase 1)
+│   ├── .env                          # Environment variables (not in git)
+│   ├── test_rag.ipynb                # RAG testing notebook
+│   └── notebook.ipynb                # General testing notebook
+├── Documentation/                    # Architecture & analysis docs
+│   ├── ARCHITECTURE_ANALYSIS.md      # System analysis (multi-tenancy verification)
+│   ├── DATABASE_ERD.md               # Database schema documentation
+│   ├── REFACTORING_PLAN.md           # Improvement roadmap
+│   ├── PRD.md                        # Product requirements (OUTDATED)
+│   └── README.md                     # Documentation index
+└── CHANGELOG_FIXES.md                # Problem tracking & file changes log
 ```
 
 ## Common Commands
@@ -103,21 +122,25 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 ### Testing
 
+**Current Test Suite**: Bruno API Tests (.bru files)
+
 ```bash
-# Run all tests with coverage
-cd backend
-pytest --cov=src --cov-report=term --cov-fail-under=80
+# Bruno tests are located in tests/Chatbot/
+# 56 API test files organized by endpoint groups:
+# - admin-agents/, admin-knowledge/, admin-tools/, admin-tenants/
+# - chat/, sessions/, supporter/, etc.
 
-# Run specific test categories
-pytest tests/unit/                    # Unit tests only
-pytest tests/integration/             # Integration tests
-pytest tests/e2e/                     # End-to-end tests
+# To run Bruno tests, use Bruno CLI or Bruno GUI application
+# See: https://www.usebruno.com/
+```
 
-# Run single test file
-pytest tests/unit/test_chat_api.py -v
+**Future**: pytest test suite to be implemented in Phase 4
 
-# Run specific test
-pytest tests/unit/test_chat_api.py::test_name -v
+```bash
+# Planned pytest structure (not yet implemented):
+# pytest --cov=src --cov-report=term --cov-fail-under=80
+# pytest tests/unit/
+# pytest tests/integration/
 ```
 
 ### Code Quality
@@ -211,18 +234,24 @@ The system uses a **Supervisor-Domain Agent pattern**:
 - **LLM Configs**: Each tenant can have custom LLM settings (provider, model, temperature)
 - **Knowledge Bases**: RAG uses metadata filtering on `tenant_id` for isolation
 
-### Database Schema (13 Tables)
+### Database Schema (17 Models)
 
-**Core Tables**:
+**Core Tenant Tables**:
 - `tenants` - Organizations using the system
 - `llm_models` - Available LLM providers/models
-- `tenant_llm_configs` - Tenant-specific LLM configurations
+- `tenant_llm_configs` - Tenant-specific LLM configurations (1:1 with tenants)
+- `tenant_widget_configs` - Widget configuration per tenant (1:1 with tenants)
+
+**User & Authentication**:
+- `users` - System users (admins, supporters)
+- `chat_users` - Chat participants/end users
+- `supporters` - Support staff (partially deprecated, see migrations)
 
 **Agent & Tool Configuration**:
 - `base_tools` - Tool type templates
 - `tool_configs` - Specific tool instances with configs
 - `agent_configs` - Domain agent configurations
-- `agent_tools` - Many-to-many (agents ↔ tools)
+- `agent_tools` - Many-to-many junction table (agents ↔ tools)
 - `output_formats` - Response format definitions
 
 **Permissions**:
@@ -244,7 +273,7 @@ The system uses a **Supervisor-Domain Agent pattern**:
 - **Multi-tenancy**: Metadata filtering on `tenant_id`
 - **Document Table**: `knowledge_documents` with tenant isolation
 
-**Testing**: See `notebook_test_pgvector/rag_pgvector.ipynb` for RAG testing workflow
+**Testing**: See `backend/test_rag.ipynb` for RAG testing workflow
 
 ### Authentication & Security
 
@@ -335,11 +364,30 @@ When server is running:
 
 ### Main Endpoints
 
+**Chat**:
 - `POST /api/{tenant_id}/chat` - Send chat message
-- `GET /api/{tenant_id}/sessions` - List sessions
-- `POST /api/admin/agents` - Create agent (admin)
-- `POST /api/admin/tools` - Create tool (admin)
-- `POST /api/admin/knowledge/upload` - Upload documents for RAG (admin)
+- `GET /api/{tenant_id}/session` - List sessions (note: singular "session")
+
+**Admin - Agents & Tools**:
+- `GET /api/admin/agents` - List agents
+- `POST /api/admin/agents` - Create agent
+- `GET /api/admin/tools` - List tools
+- `POST /api/admin/tools` - Create tool
+
+**Admin - Knowledge Base**:
+- `POST /api/admin/knowledge/upload` - Upload documents for RAG
+- `POST /api/admin/knowledge/ingest` - Trigger document ingestion
+- `GET /api/admin/knowledge/stats` - Get knowledge base stats
+
+**Admin - Tenants**:
+- `GET /api/admin/tenants` - List tenants
+- `POST /api/admin/tenants` - Create tenant
+
+**Auth** (if enabled):
+- `POST /api/auth/login` - User login
+- `POST /api/auth/register` - User registration
+
+See `backend/Guides/TENANT_SETUP_FLOW.md` for complete API workflow
 
 ## Troubleshooting
 
@@ -406,10 +454,21 @@ docker-compose logs redis
 
 ## References
 
+### External Documentation
 - **LangChain Docs**: https://python.langchain.com/docs/
 - **LangGraph Docs**: https://langchain-ai.github.io/langgraph/
 - **pgvector**: https://github.com/pgvector/pgvector
 - **FastAPI**: https://fastapi.tiangolo.com/
 - **SQLAlchemy 2.0**: https://docs.sqlalchemy.org/en/20/
 - **sentence-transformers**: https://www.sbert.net/
-- List todo list and confirm action before coding too much, every summary that update back to main files, not create each file - like over documentation - one file unified - any note needed clear chat then list todo remaining > minimize token
+
+### Internal Documentation
+- **Backend Setup**: `backend/Guides/BACKEND_SETUP.md` - How to run from scratch
+- **Tenant Setup**: `backend/Guides/TENANT_SETUP_FLOW.md` - Tenant configuration workflow
+- **Configuration**: `backend/Guides/CONFIGURATION.md` - Environment variables reference
+- **Architecture Analysis**: `Documentation/ARCHITECTURE_ANALYSIS.md` - System audit & multi-tenancy verification
+- **Database ERD**: `Documentation/DATABASE_ERD.md` - Complete schema documentation
+- **Changelog**: `CHANGELOG_FIXES.md` - Problem tracking & file changes
+- **PRD** (outdated): `Documentation/PRD.md` - Original product requirements (code is source of truth)
+
+**Note**: List todo list and confirm action before coding too much, every summary that update back to main files, not create each file - like over documentation - one file unified - any note needed clear chat then list todo remaining > minimize token

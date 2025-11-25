@@ -1,8 +1,25 @@
 # Database Migration & Seeding System
 
+> **⚠️ IMPORTANT: ALEMBIC IS THE CANONICAL MIGRATION SYSTEM**
+>
+> **Schema Migrations**: Use `alembic` (located in `backend/alembic/versions/`)
+> **Seed Data**: These scripts are **OPTIONAL** - use admin APIs instead (recommended)
+>
+> **See also**: `backend/Guides/BACKEND_SETUP.md` for official setup guide
+>
+> **Migration System Decision (2025-11-25)**:
+> - ✅ **Alembic** = Official schema migrations
+> - ⚠️ **This folder** = Optional seed data scripts for development/testing
+> - 📖 **Admin APIs** = Recommended way to populate production data
+>
+> For production tenant setup, see: `backend/Guides/TENANT_SETUP_FLOW.md`
+
+---
+
 **Project:** ITL_PGVector - Multi-Tenant Chatbot Framework
 **Created:** 2025-11-11
-**Status:** 🟡 PLANNING PHASE COMPLETE - Ready for Phase 1 execution
+**Updated:** 2025-11-25 (Added Alembic clarification)
+**Status:** 🟡 OPTIONAL SEED SCRIPTS - Use admin APIs for production
 **Owner:** Backend Team
 
 ---

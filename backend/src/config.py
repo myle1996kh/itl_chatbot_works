@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # Database Configuration
-    DATABASE_URL: str = Field(default="postgresql://postgres:Postgres123!@172.23.178.103:32001/chatbot")
+    # IMPORTANT: Set DATABASE_URL in .env file - no default password for security
+    DATABASE_URL: str = Field(default="")
     DB_POOL_SIZE: int = Field(default=20)
     DB_MAX_OVERFLOW: int = Field(default=10)
 
@@ -34,7 +35,8 @@ class Settings(BaseSettings):
     # Development Auth Toggle (Get User Token Bypass - Tạm thời False để test)
     # When true, JWT auth can be bypassed for specific dependencies
     # intended for local testing only.
-    DISABLE_AUTH: bool = Field(default=True)
+    # SECURITY: Defaults to False (auth required). Set to True only in .env for development.
+    DISABLE_AUTH: bool = Field(default=False)
 
     # Test Bearer Token for External API Calls
     # Used when DISABLE_AUTH=true for HTTP tool requests to external APIs
@@ -72,7 +74,8 @@ class Settings(BaseSettings):
         return v
 
     class Config:
-        env_file =  Path(__file__).parent / ".env"
+        # .env file is in backend/ directory (one level up from src/)
+        env_file = Path(__file__).parent.parent / ".env"
         case_sensitive = True
         extra = "ignore"  # Ignore extra fields from .env
 
