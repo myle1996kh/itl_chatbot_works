@@ -20,6 +20,7 @@ from src.schemas.admin import (
 )
 from src.middleware.auth import require_admin_role
 from src.utils.logging import get_logger
+from src.services.widget_service import widget_service
 
 logger = get_logger(__name__)
 
@@ -88,6 +89,8 @@ class TenantFullResponse(BaseModel):
     llm_config_id: str
     enabled_agents: int
     enabled_tools: int
+    widget_key: str
+    embed_code: str
     created_at: Optional[datetime] = None
 
 # ============================================================================
@@ -719,7 +722,13 @@ async def create_tenant_full(
                     enabled=True
                 ))
                 enabled_tools += 1
-        
+
+        # 7. Create widget config with auto-generated embed code
+        widget_config = widget_service.create_widget_config(
+            db=db,
+            tenant_id=tenant_id
+        )
+
         db.commit()
         
         logger.info(
@@ -739,6 +748,8 @@ async def create_tenant_full(
             llm_config_id=str(llm_config.config_id),
             enabled_agents=enabled_agents,
             enabled_tools=enabled_tools,
+            widget_key=widget_config.widget_key,
+            embed_code=widget_config.embed_code_snippet,
             created_at=tenant.created_at,
         )
         

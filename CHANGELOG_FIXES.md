@@ -420,6 +420,180 @@
 
 ---
 
+## Phase Widget MVP: Widget Embedding Implementation (2025-11-25)
+
+### Overview
+
+Implemented Quick MVP (Option C) for widget embedding functionality to auto-generate and return embed code when creating new tenants.
+
+### NEW FILES CREATED
+
+**1. backend/src/schemas/widget.py** (70 lines)
+- **Purpose**: Pydantic schemas for widget configuration API
+- **Schemas**:
+  - WidgetConfigResponse: Full widget config with all settings
+  - WidgetEmbedCodeResponse: Embed code snippet with instructions
+  - WidgetConfigUpdateRequest: Update widget settings
+- **Key fields**: config_id, tenant_id, widget_key, theme, primary_color, position, embed_code
+
+**2. backend/src/services/widget_service.py** (220 lines)
+- **Purpose**: Service layer for widget config management
+- **Key methods**:
+  - `generate_widget_key()`: Creates unique "wk_" prefixed key (35 chars)
+  - `generate_widget_secret()`: Creates encrypted secret using Fernet
+  - `generate_embed_code()`: Creates HTML iframe snippet with widget loader
+  - `create_widget_config()`: Auto-creates config on tenant creation
+  - `get_widget_config()`: Retrieves config by tenant_id
+  - `update_widget_config()`: Updates widget settings
+  - `regenerate_widget_keys()`: Rotates keys for security
+- **Testing**: All methods tested successfully
+
+**3. backend/src/api/admin/widgets.py** (315 lines)
+- **Purpose**: Admin API endpoints for widget management
+- **Endpoints**:
+  - GET `/api/admin/tenants/{tenant_id}/widget` - Get widget config
+  - GET `/api/admin/tenants/{tenant_id}/widget/embed-code` - Get embed code (PRIMARY ENDPOINT)
+  - PATCH `/api/admin/tenants/{tenant_id}/widget` - Update widget config
+  - POST `/api/admin/tenants/{tenant_id}/widget/regenerate-keys` - Rotate widget keys
+- **Auth**: All endpoints require admin role (JWT)
+- **Response**: Returns ready-to-copy HTML snippet
+
+### FILES MODIFIED
+
+**4. backend/src/api/admin/tenants.py** (lines 23, 83-94, 726-732, 743-754)
+- **Why**: Auto-create widget config when tenant is created
+- **Changes**:
+  - Line 23: Added `from src.services.widget_service import widget_service`
+  - Lines 92-93: Added widget_key and embed_code to TenantFullResponse
+  - Lines 726-730: Added widget config creation after permissions setup
+  - Lines 751-752: Return widget_key and embed_code in response
+- **Impact**: Tenant creation now includes widget embed code in response
+
+**5. backend/src/main.py** (line 209, 217)
+- **Why**: Register widget routes in FastAPI app
+- **Changes**:
+  - Line 209: Added `widgets` to admin imports
+  - Line 217: Added `app.include_router(widgets.router, tags=["admin-widgets"])`
+- **Verification**: 4 widget routes registered successfully
+
+### TESTING RESULTS
+
+**Import Tests**: All imports successful
+- Widget service: OK
+- Widget schemas: OK
+- Widget router: OK
+- Main app: OK
+
+**Functionality Tests**:
+- Widget key generation: OK (format: wk_*, length: 35)
+- Widget secret generation: OK (Fernet encrypted)
+- Embed code generation: OK (contains widget_key and tenant_id)
+- Route registration: OK (4 routes registered)
+
+**Registered Routes**:
+1. GET `/api/admin/tenants/{tenant_id}/widget`
+2. GET `/api/admin/tenants/{tenant_id}/widget/embed-code`
+3. PATCH `/api/admin/tenants/{tenant_id}/widget`
+4. POST `/api/admin/tenants/{tenant_id}/widget/regenerate-keys`
+
+### HOW TO USE
+
+**Creating a Tenant with Widget**:
+```bash
+POST /api/admin/tenants/create-new
+{
+  "name": "Example Company",
+  "domain": "example.com",
+  "llm_config": {...},
+  "agent_ids": [...],
+  "tool_ids": [...]
+}
+
+# Response includes:
+{
+  "tenant_id": "uuid",
+  "widget_key": "wk_abc123...",
+  "embed_code": "<script>...</script>",
+  ...
+}
+```
+
+**Getting Embed Code for Existing Tenant**:
+```bash
+GET /api/admin/tenants/{tenant_id}/widget/embed-code
+
+# Response:
+{
+  "tenant_id": "uuid",
+  "widget_key": "wk_abc123...",
+  "embed_code": "<script>...</script>",
+  "instructions": "Copy and paste this code..."
+}
+```
+
+### EMBED CODE FORMAT
+
+The generated embed code is a self-contained iframe snippet:
+```html
+<!-- AgentHub Chatbot Widget -->
+<script>
+  (function() {
+    var chatWidget = document.createElement('iframe');
+    chatWidget.id = 'agenthub-chat-widget';
+    chatWidget.src = 'http://localhost:8000/widget/wk_xxx?tenant_id=xxx';
+    chatWidget.style.cssText = 'position: fixed; bottom: 20px; right: 20px; width: 400px; height: 600px; ...';
+    document.body.appendChild(chatWidget);
+
+    window.addEventListener('message', function(e) {
+      if (e.data.type === 'agenthub:minimize') { ... }
+      else if (e.data.type === 'agenthub:maximize') { ... }
+    });
+  })();
+</script>
+```
+
+### PRODUCTION NOTES
+
+**Environment Configuration**:
+- Development: Uses `http://localhost:8000` as base URL
+- Production: Set `WIDGET_BASE_URL` environment variable (e.g., `https://api.agenthub.example.com`)
+
+**Security**:
+- Widget keys are public identifiers (safe to expose)
+- Widget secrets are Fernet encrypted (never returned to client)
+- Embed code uses iframe isolation for security
+- CORS must be configured for parent domains
+
+**Features Implemented (MVP)**:
+- Auto-generation of widget_key and widget_secret
+- Iframe embed code generation
+- Widget config created on tenant creation
+- API endpoint to retrieve embed code
+- Widget settings (theme, colors, position, etc.)
+- Key rotation endpoint for security
+
+**Future Enhancements** (Not in MVP):
+- Standalone widget bundle (widget.min.js)
+- Real-time widget customization preview
+- Widget analytics and tracking
+- Custom branding and white-labeling
+- Widget A/B testing
+
+### FILES SUMMARY
+
+**Created** (3 files):
+- backend/src/schemas/widget.py
+- backend/src/services/widget_service.py
+- backend/src/api/admin/widgets.py
+
+**Modified** (2 files):
+- backend/src/api/admin/tenants.py (4 changes)
+- backend/src/main.py (2 changes)
+
+**Total Changes**: 5 files, ~605 new lines of code
+
+---
+
 **Last Updated**: 2025-11-25
-**Status**: Phase 3 in progress
-**Next Update**: After Phase 3 completion
+**Status**: Phase Widget MVP completed successfully
+**Next Update**: After testing in integration environment
