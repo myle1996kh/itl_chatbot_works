@@ -1,14 +1,4 @@
 [
-  {"tenant_name": "eTMS", "agent_name": "SupervisorAgent", "enabled": true},
-  {"tenant_name": "eTMS", "agent_name": "GuidelineAgent", "enabled": true},
-  {"tenant_name": "eTMS", "agent_name": "DebtAgent", "enabled": false},
-  {"tenant_name": "eTMS", "agent_name": "ShipmentAgent", "enabled": false},
-  {"tenant_name": "eFMS", "agent_name": "SupervisorAgent", "enabled": true},
-  {"tenant_name": "eFMS", "agent_name": "GuidelineAgent", "enabled": true},
-  {"tenant_name": "eFMS", "agent_name": "DebtAgent", "enabled": true},
-  {"tenant_name": "eFMS", "agent_name": "ShipmentAgent", "enabled": true},
-  {"tenant_name": "Vela", "agent_name": "SupervisorAgent", "enabled": true},
-  {"tenant_name": "Vela", "agent_name": "GuidelineAgent", "enabled": true},
-  {"tenant_name": "Vela", "agent_name": "DebtAgent", "enabled": false},
-  {"tenant_name": "Vela", "agent_name": "ShipmentAgent", "enabled": false}
+  {"tenant_name": "Test_eTMS", "agent_name": "GuidelineAgent", "enabled": true},
+  {"tenant_name": "Test_eTMS", "agent_name": "SupervisorAgent", "enabled": true}
 ]

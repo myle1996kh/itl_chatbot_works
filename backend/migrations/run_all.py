@@ -8,16 +8,7 @@ from pathlib import Path
 
 
 SCRIPTS = [
-    "0_create_tables.py",
-    "1_seed_base_data.py",
-    "2_seed_llm_models.py",
-    "3_seed_tenants.py",
-    "4_seed_agents.py",
-    "5_seed_tool_configs.py",
-    "6_seed_agent_tools.py",
     "7_seed_llm_configs.py",
-    "8_seed_users.py",
-    "9_seed_permissions.py"
 ]
 
 

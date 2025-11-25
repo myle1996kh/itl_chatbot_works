@@ -37,19 +37,9 @@ def seed_llm_configs():
         # Define tenant-to-LLM mappings
         configs = [
             {
-                "tenant_name": "eTMS",
+                "tenant_name": "Test_eTMS",
                 "provider": "google",
                 "model_name": "gemini-2.5-flash"
-            },
-            {
-                "tenant_name": "eFMS",
-                "provider": "openrouter",
-                "model_name": "google/gemini-2.0-flash-exp:free"
-            },
-            {
-                "tenant_name": "Vela",
-                "provider": "openrouter",
-                "model_name": "openai/gpt-4o-mini"
             }
         ]
 

@@ -13,6 +13,7 @@ from .session import ChatSession
 from .message import Message
 from .tenant_widget_config import TenantWidgetConfig
 from .user import User
+from .chat_user import ChatUser
 
 __all__ = [
     "Base",
@@ -29,4 +30,5 @@ __all__ = [
     "Message",
     "TenantWidgetConfig",
     "User",
+    "ChatUser",
 ]

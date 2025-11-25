@@ -8,7 +8,9 @@
       "Bash(findstr:*)",
       "Bash(taskkill /F /PID 23080 /PID 15004)",
       "Bash(timeout:*)",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(ver:*)",
+      "Bash(cmd /c echo Testing CMD)"
     ],
     "deny": [],
     "ask": []
