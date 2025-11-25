@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path, UploadFile, File, F
 from sqlalchemy.orm import Session
 from src.config import get_db
 from src.models.tenant import Tenant
+from src.models.tool import ToolConfig
+from src.models.base_tool import BaseTool
 from src.schemas.admin import (
     DocumentIngestRequest,
     DocumentIngestResponse,
@@ -21,84 +23,6 @@ from src.utils.logging import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin-knowledge"])
-
-
-@router.post("/tenants/{tenant_id}/knowledge", response_model=DocumentIngestResponse)
-async def ingest_documents(
-    tenant_id: str = Path(..., description="Tenant UUID"),
-    request: DocumentIngestRequest = ...,
-    db: Session = Depends(get_db),
-    admin_payload: dict = Depends(require_admin_role),
-) -> DocumentIngestResponse:
-    """
-    Ingest documents into tenant's knowledge base.
-
-    This creates a tenant-specific ChromaDB collection and adds documents
-    for later retrieval by AgentAnalysis via RAG.
-
-    Requires admin role in JWT.
-    """
-    try:
-        # Validate tenant exists
-        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
-        if not tenant:
-            raise HTTPException(status_code=404, detail="Tenant not found")
-
-        # Get RAG service
-        rag_service = get_rag_service()
-
-        # Create collection if it doesn't exist
-        collection_result = rag_service.create_tenant_collection(
-            tenant_id=tenant_id,
-            metadata={"created_by_admin": admin_payload.get("user_id")}
-        )
-
-        if not collection_result.get("success"):
-            raise HTTPException(
-                status_code=500,
-                detail=collection_result.get("error", "Failed to create collection")
-            )
-
-        # Ingest documents
-        ingest_result = rag_service.ingest_documents(
-            tenant_id=tenant_id,
-            documents=request.documents,
-            metadatas=request.metadatas,
-        )
-
-        if not ingest_result.get("success"):
-            raise HTTPException(
-                status_code=500,
-                detail=ingest_result.get("error", "Failed to ingest documents")
-            )
-
-        logger.info(
-            "documents_ingested_by_admin",
-            admin_user=admin_payload.get("user_id"),
-            tenant_id=tenant_id,
-            document_count=ingest_result.get("document_count"),
-        )
-
-        return DocumentIngestResponse(
-            success=True,
-            tenant_id=tenant_id,
-            collection_name=ingest_result.get("collection_name"),
-            document_count=ingest_result.get("document_count"),
-            document_ids=ingest_result.get("document_ids"),
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            "ingest_documents_error",
-            tenant_id=tenant_id,
-            error=str(e)
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to ingest documents: {str(e)}"
-        )
 
 
 @router.get("/tenants/{tenant_id}/knowledge/stats", response_model=KnowledgeBaseStatsResponse)
@@ -168,7 +92,7 @@ async def delete_documents(
     admin_payload: dict = Depends(require_admin_role),
 ) -> MessageResponse:
     """
-    Delete documents from tenant's knowledge base.
+    Delete documents from tenant's knowledge base by document IDs.
 
     Requires admin role in JWT.
     """
@@ -222,6 +146,178 @@ async def delete_documents(
         )
 
 
+@router.delete("/tenants/{tenant_id}/knowledge/by-name/{document_name}", response_model=MessageResponse)
+async def delete_documents_by_name(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    document_name: str = Path(..., description="Document name to delete"),
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> MessageResponse:
+    """
+    Delete documents from tenant's knowledge base by document name.
+
+    This endpoint finds all document chunks associated with a specific document name
+    and deletes them from the vector store. The document name is stored in the metadata.
+
+    Args:
+        tenant_id: Tenant UUID
+        document_name: Name of the document to delete (as stored in document metadata)
+
+    Requires admin role in JWT.
+    """
+    try:
+        # Validate tenant exists
+        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        # Get RAG service
+        rag_service = get_rag_service()
+
+        # First, find all document IDs that match the document name for this tenant
+        # We need to query the database to get the doc_id values from metadata
+        from sqlalchemy import create_engine, text
+        from src.config import settings
+
+        engine = create_engine(settings.DATABASE_URL)
+        with engine.connect() as conn:
+            # Query to find all document IDs that match the document name
+            result = conn.execute(text("""
+                SELECT DISTINCT cmetadata->>'doc_id' as doc_id
+                FROM langchain_pg_embedding
+                WHERE cmetadata->>'tenant_id' = :tenant_id
+                AND cmetadata->>'document_name' = :document_name
+            """), {
+                "tenant_id": tenant_id,
+                "document_name": document_name
+            })
+
+            document_ids = [row.doc_id for row in result]
+
+        if not document_ids:
+            logger.info(
+                "no_documents_found_to_delete_by_name",
+                tenant_id=tenant_id,
+                document_name=document_name
+            )
+            return MessageResponse(
+                message=f"No documents found with name '{document_name}' for tenant",
+                details={
+                    "tenant_id": tenant_id,
+                    "document_name": document_name,
+                    "deleted_count": 0,
+                }
+            )
+
+        # Delete documents by their IDs
+        delete_result = rag_service.delete_documents(
+            tenant_id=tenant_id,
+            document_ids=document_ids,
+        )
+
+        if not delete_result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=delete_result.get("error", "Failed to delete documents")
+            )
+
+        logger.info(
+            "documents_deleted_by_name",
+            admin_user=admin_payload.get("user_id"),
+            tenant_id=tenant_id,
+            document_name=document_name,
+            deleted_count=delete_result.get("deleted_count"),
+        )
+
+        return MessageResponse(
+            message=f"Successfully deleted {delete_result.get('deleted_count')} document chunks with name '{document_name}'",
+            details={
+                "tenant_id": tenant_id,
+                "document_name": document_name,
+                "deleted_count": delete_result.get("deleted_count"),
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "delete_documents_by_name_error",
+            tenant_id=tenant_id,
+            document_name=document_name,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete documents by name: {str(e)}"
+        )
+
+
+@router.delete("/tenants/{tenant_id}/knowledge/all", response_model=MessageResponse)
+async def delete_all_documents_for_tenant(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> MessageResponse:
+    """
+    Delete ALL documents from tenant's knowledge base.
+
+    This endpoint removes all embeddings and document chunks for the specified tenant.
+
+    Args:
+        tenant_id: Tenant UUID
+
+    Requires admin role in JWT.
+    """
+    try:
+        # Validate tenant exists
+        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        # Get RAG service
+        rag_service = get_rag_service()
+
+        # Delete all documents for this tenant
+        delete_result = rag_service.delete_all_documents_for_tenant(
+            tenant_id=tenant_id,
+        )
+
+        if not delete_result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=delete_result.get("error", "Failed to delete all documents")
+            )
+
+        logger.info(
+            "all_documents_for_tenant_deleted_by_admin",
+            admin_user=admin_payload.get("user_id"),
+            tenant_id=tenant_id,
+            deleted_count=delete_result.get("deleted_count"),
+        )
+
+        return MessageResponse(
+            message=f"Successfully deleted all {delete_result.get('deleted_count')} documents for tenant",
+            details={
+                "tenant_id": tenant_id,
+                "deleted_count": delete_result.get("deleted_count"),
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "delete_all_documents_for_tenant_error",
+            tenant_id=tenant_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete all documents for tenant: {str(e)}"
+        )
+
+
 @router.post("/tenants/{tenant_id}/knowledge/upload-document", response_model=PDFUploadResponse)
 async def upload_document(
     tenant_id: str = Path(..., description="Tenant UUID"),
@@ -233,9 +329,12 @@ async def upload_document(
     """
     Upload and process a document file (PDF, DOCX, or TXT) into tenant's knowledge base.
 
+    Uses the tenant's configured RAG tool settings for chunking parameters if available.
+    Falls back to default parameters if no custom configuration is found.
+
     This endpoint:
     1. Validates the document file (supports .pdf, .docx, .doc, .txt)
-    2. Extracts text and splits into chunks (400 chars, 200 overlap)
+    2. Extracts text and splits into chunks using tenant's configured RAG parameters
     3. For DOCX: Tracks section hierarchy and heading structure
     4. Generates embeddings using all-MiniLM-L6-v2 (384 dimensions)
     5. Stores in PgVector with multi-tenant isolation
@@ -256,6 +355,33 @@ async def upload_document(
         tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant not found")
+
+        # Find the RAG tool configuration for this tenant to get chunking parameters
+        chunk_config = None
+        try:
+            # Look for RAG tools associated with this tenant
+            base_rag_tool = db.query(BaseTool).filter(BaseTool.type == "rag").first()
+            if base_rag_tool:
+                # Get any RAG tool configuration for this tenant
+                rag_tool_config = db.query(ToolConfig).filter(
+                    ToolConfig.base_tool_id == base_rag_tool.base_tool_id,
+                    ToolConfig.is_active == True
+                ).first()
+
+                if rag_tool_config and rag_tool_config.config:
+                    # Extract chunking parameters from the tool configuration
+                    config_data = rag_tool_config.config
+                    chunk_config = {
+                        "chunk_size": config_data.get("chunk_size", 800),
+                        "chunk_overlap": config_data.get("chunk_overlap", 200),
+                        "separators": config_data.get("separators", ["\n\n", "\n", ". ", " ", ""])
+                    }
+        except Exception as e:
+            logger.warning(
+                "rag_tool_config_lookup_failed",
+                tenant_id=tenant_id,
+                error=str(e)
+            )
 
         # Validate file format
         file_ext = FilePath(file.filename).suffix.lower()
@@ -291,7 +417,8 @@ async def upload_document(
             ingest_result = rag_service.ingest_document(
                 tenant_id=tenant_id,
                 file_path=tmp_file_path,
-                additional_metadata=additional_metadata
+                additional_metadata=additional_metadata,
+                chunk_config=chunk_config  # Pass the chunk configuration
             )
 
             if not ingest_result.get("success"):
@@ -307,6 +434,8 @@ async def upload_document(
                 filename=file.filename,
                 file_type=file_ext,
                 chunk_count=ingest_result.get("document_count"),
+                chunk_size=chunk_config.get("chunk_size") if chunk_config else "default",
+                chunk_overlap=chunk_config.get("chunk_overlap") if chunk_config else "default"
             )
 
             return PDFUploadResponse(

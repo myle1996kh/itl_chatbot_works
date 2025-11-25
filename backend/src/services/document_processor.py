@@ -27,8 +27,8 @@ class DocumentProcessor:
 
     def __init__(
         self,
-        chunk_size: int = 600,
-        chunk_overlap: int = 200,
+        chunk_size: int = 800,
+        chunk_overlap: int = 150,
         separators: Optional[List[str]] = None
     ):
         """
@@ -564,7 +564,8 @@ class DocumentProcessor:
         self,
         file_path: str,
         tenant_id: str,
-        additional_metadata: Optional[Dict[str, Any]] = None
+        additional_metadata: Optional[Dict[str, Any]] = None,
+        chunk_config: Optional[Dict[str, Any]] = None
     ) -> List[Document]:
         """
         Universal document processing pipeline: Auto-detect format → Load → Chunk → Enrich.
@@ -578,6 +579,7 @@ class DocumentProcessor:
             file_path: Path to document file (.pdf, .docx, .doc, or .txt)
             tenant_id: Tenant UUID
             additional_metadata: Optional metadata to add to all chunks
+            chunk_config: Optional chunking config (chunk_size, chunk_overlap, separators)
 
         Returns:
             List of processed Document chunks ready for embedding
@@ -585,7 +587,7 @@ class DocumentProcessor:
         Pipeline:
             1. Detect file format by extension
             2. Load document (format-specific loader)
-            3. Chunk documents into smaller pieces
+            3. Chunk documents into smaller pieces (with optional custom config)
             4. Enrich metadata (tenant_id, timestamp, custom fields)
 
         Example:
@@ -607,40 +609,64 @@ class DocumentProcessor:
                 tenant_id=tenant_id
             )
 
-            # 1. Load based on format
-            if file_ext == '.pdf':
-                documents = self.load_pdf(file_path)
-            elif file_ext in ['.docx', '.doc']:
-                documents = self.load_docx(file_path)
-            elif file_ext == '.txt':
-                documents = self.load_txt(file_path)
-            else:
-                raise ValueError(
-                    f"Unsupported file format: {file_ext}. "
-                    f"Supported formats: .pdf, .docx, .doc, .txt"
+            # Apply chunk configuration if provided
+            original_chunk_size = self.chunk_size
+            original_chunk_overlap = self.chunk_overlap
+            original_separators = self.separators
+
+            if chunk_config:
+                # Temporarily update configuration
+                self.update_config(
+                    chunk_size=chunk_config.get('chunk_size'),
+                    chunk_overlap=chunk_config.get('chunk_overlap'),
+                    separators=chunk_config.get('separators')
                 )
 
-            # 2. Chunk documents (preserves metadata including section_title)
-            chunks = self.chunk_documents(documents, add_chunk_metadata=True)
+            try:
+                # 1. Load based on format
+                if file_ext == '.pdf':
+                    documents = self.load_pdf(file_path)
+                elif file_ext in ['.docx', '.doc']:
+                    documents = self.load_docx(file_path)
+                elif file_ext == '.txt':
+                    documents = self.load_txt(file_path)
+                else:
+                    raise ValueError(
+                        f"Unsupported file format: {file_ext}. "
+                        f"Supported formats: .pdf, .docx, .doc, .txt"
+                    )
 
-            # 3. Enrich metadata with tenant info
-            enriched_chunks = self.enrich_metadata(
-                chunks,
-                tenant_id=tenant_id,
-                additional_metadata=additional_metadata
-            )
+                # 2. Chunk documents (preserves metadata including section_title)
+                chunks = self.chunk_documents(documents, add_chunk_metadata=True)
 
-            logger.info(
-                "document_processing_completed",
-                file_path=file_path,
-                file_type=file_ext,
-                tenant_id=tenant_id,
-                original_document_count=len(documents),
-                chunk_count=len(enriched_chunks),
-                avg_chars_per_chunk=sum(len(c.page_content) for c in enriched_chunks) / len(enriched_chunks) if enriched_chunks else 0
-            )
+                # 3. Enrich metadata with tenant info
+                enriched_chunks = self.enrich_metadata(
+                    chunks,
+                    tenant_id=tenant_id,
+                    additional_metadata=additional_metadata
+                )
 
-            return enriched_chunks
+                logger.info(
+                    "document_processing_completed",
+                    file_path=file_path,
+                    file_type=file_ext,
+                    tenant_id=tenant_id,
+                    original_document_count=len(documents),
+                    chunk_count=len(enriched_chunks),
+                    chunk_size=self.chunk_size,
+                    chunk_overlap=self.chunk_overlap,
+                    avg_chars_per_chunk=sum(len(c.page_content) for c in enriched_chunks) / len(enriched_chunks) if enriched_chunks else 0
+                )
+
+                return enriched_chunks
+
+            finally:
+                # Restore original configuration
+                self.update_config(
+                    chunk_size=original_chunk_size,
+                    chunk_overlap=original_chunk_overlap,
+                    separators=original_separators
+                )
 
         except Exception as e:
             logger.error(
@@ -657,7 +683,7 @@ _document_processor: Optional[DocumentProcessor] = None
 
 
 def get_document_processor(
-    chunk_size: int = 600,
+    chunk_size: int = 800,
     chunk_overlap: int = 200
 ) -> DocumentProcessor:
     """

@@ -21,13 +21,13 @@ class RAGToolConfig(BaseModel):
 
     # Chunking parameters
     chunk_size: int = Field(
-        default=600,
+        default=800,
         ge=100,
         le=2000,
         description="Size of text chunks in characters"
     )
     chunk_overlap: int = Field(
-        default=200,
+        default=150,
         ge=0,
         le=500,
         description="Overlap between chunks in characters"

@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     # Used when DISABLE_AUTH=true for HTTP tool requests to external APIs
     TEST_BEARER_TOKEN: str = Field(default="")
 
+
     # CORS Settings
     CORS_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:8080")
 

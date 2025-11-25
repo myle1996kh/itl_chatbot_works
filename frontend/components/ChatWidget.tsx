@@ -132,8 +132,8 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
         }
     }
     // Scroll to the bottom
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    // messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+   }, [messages]);
 
   const handleSendMessage = async () => {
     if ((!input.trim() && !attachedFile) || isTyping) return;

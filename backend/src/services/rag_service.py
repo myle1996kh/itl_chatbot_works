@@ -647,6 +647,62 @@ class RAGService:
                 "error": f"Failed to delete documents: {str(e)}",
             }
 
+    def delete_all_documents_for_tenant(
+        self,
+        tenant_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Delete ALL documents from tenant's knowledge base.
+
+        Args:
+            tenant_id: Tenant UUID
+
+        Returns:
+            Dictionary with deletion results
+        """
+        collection_name = self.get_collection_name(tenant_id)
+
+        try:
+            # Use raw SQL to delete by metadata filter
+            # PGVector stores metadata as JSONB, so we filter by tenant_id only
+            with self.engine.connect() as conn:
+                result = conn.execute(
+                    text("""
+                        DELETE FROM langchain_pg_embedding
+                        WHERE cmetadata->>'tenant_id' = :tenant_id
+                    """),
+                    {"tenant_id": str(tenant_id)}
+                )
+                conn.commit()
+
+                # Get the number of rows affected
+                deleted_count = result.rowcount
+
+            logger.info(
+                "all_documents_for_tenant_deleted",
+                tenant_id=tenant_id,
+                collection_name=collection_name,
+                deleted_count=deleted_count,
+            )
+
+            return {
+                "success": True,
+                "tenant_id": tenant_id,
+                "deleted_count": deleted_count,
+            }
+
+        except Exception as e:
+            logger.error(
+                "delete_all_documents_for_tenant_failed",
+                tenant_id=tenant_id,
+                collection_name=collection_name,
+                error=str(e)
+            )
+            return {
+                "success": False,
+                "error": f"Failed to delete all documents for tenant: {str(e)}",
+            }
+
     def get_collection_stats(self, tenant_id: str) -> Dict[str, Any]:
         """
         Get statistics for tenant's collection.
@@ -702,7 +758,8 @@ class RAGService:
         self,
         tenant_id: str,
         file_path: str,
-        additional_metadata: Optional[Dict[str, Any]] = None
+        additional_metadata: Optional[Dict[str, Any]] = None,
+        chunk_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Process and ingest ANY supported document (PDF, DOCX) into tenant's knowledge base.
@@ -713,6 +770,7 @@ class RAGService:
             tenant_id: Tenant UUID
             file_path: Path to document file (.pdf, .docx, or .doc)
             additional_metadata: Optional metadata to add to all chunks
+            chunk_config: Optional chunking config (chunk_size, chunk_overlap, separators)
 
         Returns:
             Dictionary with ingestion results
@@ -736,7 +794,8 @@ class RAGService:
             chunks = self.doc_processor.process_document(
                 file_path=file_path,
                 tenant_id=tenant_id,
-                additional_metadata=additional_metadata
+                additional_metadata=additional_metadata,
+                chunk_config=chunk_config  # Pass the configuration
             )
 
             # Extract texts and metadatas (metadata includes section_title, section_number for DOCX)
@@ -751,13 +810,24 @@ class RAGService:
             )
 
             if result["success"]:
-                logger.info(
-                    "document_ingestion_completed",
-                    tenant_id=tenant_id,
-                    file_path=file_path,
-                    file_type=file_ext,
-                    chunk_count=len(chunks)
-                )
+                if chunk_config:
+                    logger.info(
+                        "document_ingestion_completed_with_custom_config",
+                        tenant_id=tenant_id,
+                        file_path=file_path,
+                        file_type=file_ext,
+                        chunk_count=len(chunks),
+                        chunk_size=chunk_config.get('chunk_size', self.doc_processor.chunk_size),
+                        chunk_overlap=chunk_config.get('chunk_overlap', self.doc_processor.chunk_overlap)
+                    )
+                else:
+                    logger.info(
+                        "document_ingestion_completed",
+                        tenant_id=tenant_id,
+                        file_path=file_path,
+                        file_type=file_ext,
+                        chunk_count=len(chunks)
+                    )
 
             return result
 

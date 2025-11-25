@@ -89,6 +89,105 @@ async def get_widget_config(
             detail=f"Failed to get widget config: {str(e)}"
         )
 
+@router.post(
+    "/tenants/{tenant_id}/widget",
+    response_model=WidgetConfigResponse,
+    status_code=201
+)
+async def create_widget_config(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> WidgetConfigResponse:
+    """
+    Create widget configuration for an existing tenant.
+
+    This endpoint creates a widget config for tenants that were created
+    without one (e.g., using the basic tenant create endpoint).
+
+    Requires admin role in JWT.
+
+    Args:
+        tenant_id: Tenant UUID
+
+    Returns:
+        WidgetConfigResponse with newly created widget configuration
+
+    Raises:
+        404: Tenant not found
+        409: Widget already exists for this tenant
+    """
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+
+        # Check if widget already exists
+        existing_widget = widget_service.get_widget_config(db, tenant_uuid)
+        if existing_widget:
+            raise HTTPException(
+                status_code=409,
+                detail="Widget configuration already exists for this tenant. "
+                       "Use PATCH to update or POST to /widget/regenerate-keys to regenerate."
+            )
+
+        # Verify tenant exists
+        from src.models.tenant import Tenant
+        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_uuid).first()
+        if not tenant:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tenant not found: {tenant_id}"
+            )
+
+        # Create widget config
+        widget_config = widget_service.create_widget_config(
+            db=db,
+            tenant_id=tenant_uuid
+        )
+        db.commit()
+
+        logger.info(
+            "widget_config_created",
+            admin_user=admin_payload.get("sub"),
+            tenant_id=tenant_id,
+            widget_key=widget_config.widget_key
+        )
+
+        return WidgetConfigResponse(
+            config_id=str(widget_config.config_id),
+            tenant_id=str(widget_config.tenant_id),
+            widget_key=widget_config.widget_key,
+            theme=widget_config.theme,
+            primary_color=widget_config.primary_color,
+            position=widget_config.position,
+            custom_css=widget_config.custom_css,
+            auto_open=widget_config.auto_open,
+            welcome_message=widget_config.welcome_message,
+            placeholder_text=widget_config.placeholder_text,
+            allowed_domains=widget_config.allowed_domains,
+            max_session_duration=widget_config.max_session_duration,
+            rate_limit_per_minute=widget_config.rate_limit_per_minute,
+            enable_file_upload=widget_config.enable_file_upload,
+            enable_voice_input=widget_config.enable_voice_input,
+            enable_conversation_history=widget_config.enable_conversation_history,
+            created_at=widget_config.created_at,
+            updated_at=widget_config.updated_at,
+        )
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid tenant UUID format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "create_widget_config_error",
+            tenant_id=tenant_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create widget config: {str(e)}"
+        )
 
 @router.get(
     "/tenants/{tenant_id}/widget/embed-code",

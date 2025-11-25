@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test AgentHub Widget</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 40px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+        }
+        p {
+            font-size: 1.2em;
+            line-height: 1.6;
+        }
+        .info-box {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .agenthub-chat-widget {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 400px;
+            height: 600px;
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 AgentHub Chatbot Widget Test</h1>
+        <p>This page demonstrates the chatbot widget integration.</p>
+        
+        <div class="info-box">
+            <h3>📝 Widget Features:</h3>
+            <ul>
+                <li>Fixed position (bottom-right corner)</li>
+                <li>Responsive iframe (400x600px)</li>
+                <li>Minimize/Maximize functionality</li>
+                <li>Message communication between widget and parent page</li>
+            </ul>
+        </div>
+
+        <div class="info-box">
+            <h3>🧪 Testing Instructions:</h3>
+            <ol>
+                <li>Look for the chat widget in the bottom-right corner</li>
+                <li>Click to interact with the chatbot</li>
+                <li>Check browser console for any errors</li>
+                <li>Test minimize/maximize if implemented</li>
+            </ol>
+        </div>
+    </div>
+
+    <!-- PASTE YOUR EMBED CODE HERE -->
+    <!-- AgentHub Chatbot Widget -->
+    <!-- AgentHub Chatbot Widget -->
+    <script>
+    (function() {
+        var chatWidget = document.createElement('iframe');
+        chatWidget.id = 'agenthub-chat-widget';
+        chatWidget.className = 'agenthub-chat-widget';
+        chatWidget.src = 'http://localhost:8000/widget/wk_uXSO2iFqmskES3tOI33fF8yFyYf-evi9?tenant_id=92216a07-7479-41cf-b7cc-772b17d873e1';
+        chatWidget.setAttribute('allow', 'microphone; camera');
+        document.body.appendChild(chatWidget);
+
+        // Message handler for widget-parent communication
+        window.addEventListener('message', function(e) {
+        if (e.data.type === 'agenthub:minimize') {
+            chatWidget.style.height = '80px';
+            chatWidget.style.width = '80px';
+            chatWidget.style.borderRadius = '50%';
+        } else if (e.data.type === 'agenthub:maximize') {
+            chatWidget.style.height = '';
+            chatWidget.style.width = '';
+            chatWidget.style.borderRadius = '';
+        }
+        });
+    })();
+    </script>
+</body>
+</html>
