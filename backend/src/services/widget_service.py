@@ -65,9 +65,11 @@ class WidgetService:
         """
         # Use environment-based default if not provided
         if not api_base_url:
-            if settings.ENVIRONMENT == "production":
-                # In production, use proper domain (configure via env var)
-                api_base_url = getattr(settings, "WIDGET_BASE_URL", "https://api.agenthub.example.com")
+            if settings.WIDGET_BASE_URL:
+                api_base_url = settings.WIDGET_BASE_URL
+            elif settings.ENVIRONMENT == "production":
+                # Fallback for production if config missing
+                api_base_url = "https://api.agenthub.example.com"
             else:
                 # Development default
                 api_base_url = f"http://{settings.API_HOST}:{settings.API_PORT}"
@@ -106,6 +108,7 @@ class WidgetService:
         tenant_id: uuid.UUID,
         widget_key: Optional[str] = None,
         widget_secret: Optional[str] = None,
+        api_base_url: Optional[str] = None,
         **kwargs
     ) -> TenantWidgetConfig:
         """
@@ -116,6 +119,7 @@ class WidgetService:
             tenant_id: Tenant UUID
             widget_key: Optional custom widget key (generates if not provided)
             widget_secret: Optional custom widget secret (generates if not provided)
+            api_base_url: Optional dynamic base URL for embed code
             **kwargs: Additional widget config fields (theme, primary_color, etc.)
 
         Returns:
@@ -131,7 +135,8 @@ class WidgetService:
         # Generate embed code
         embed_code = WidgetService.generate_embed_code(
             tenant_id=str(tenant_id),
-            widget_key=widget_key
+            widget_key=widget_key,
+            api_base_url=api_base_url
         )
 
         # Create widget config
@@ -214,7 +219,8 @@ class WidgetService:
     @staticmethod
     def regenerate_widget_keys(
         db: Session,
-        tenant_id: uuid.UUID
+        tenant_id: uuid.UUID,
+        api_base_url: Optional[str] = None
     ) -> TenantWidgetConfig:
         """
         Regenerate widget keys for security rotation.
@@ -222,6 +228,7 @@ class WidgetService:
         Args:
             db: Database session
             tenant_id: Tenant UUID
+            api_base_url: Optional dynamic base URL for embed code
 
         Returns:
             Updated TenantWidgetConfig instance
@@ -239,7 +246,8 @@ class WidgetService:
         new_widget_secret = WidgetService.generate_widget_secret()
         new_embed_code = WidgetService.generate_embed_code(
             tenant_id=str(tenant_id),
-            widget_key=new_widget_key
+            widget_key=new_widget_key,
+            api_base_url=api_base_url
         )
 
         # Update config

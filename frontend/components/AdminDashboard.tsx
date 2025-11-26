@@ -5,7 +5,7 @@ import { KnowledgeDocument, getDocumentsForTopic, addDocumentToKnowledgeBase, en
 import { parseFileToText } from '../services/fileParserService';
 import { uploadDocument, getKnowledgeBaseStats, ingestTexts } from '../services/knowledgeService';
 import { AGENT_NAMES } from '../src/config/topic-agent-mapping';
-import { getCurrentUser, logout, isAdmin, isStaff, type LoginResponse } from '../services/authService';
+import { getCurrentUser, logout, isAdmin, isStaff, getApiBaseUrl, type LoginResponse } from '../services/authService';
 import { getEscalationQueue, assignSupporter as assignSupporterToEscalation, resolveEscalation, getSupporters, escalateSession, type EscalationResponse, type Supporter as EscalationSupporter } from '../services/escalationService';
 import { getSessionsWithFallback, getSessionDetail, getSessionDetailPublic, sendSupporterMessage, type SessionSummary, type SessionDetail } from '../services/sessionService';
 import { getTenants as getTenantsFromBackend, getSupporters as getSupportersFromBackend, listUsers, listTenantUsers, createSupporter, updateSupporter, deleteSupporter } from '../services/adminService';
@@ -543,8 +543,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
 
         // Upload to /knowledge/upload-document endpoint
         // Backend will: Extract → Chunk → Embed → Store with metadata
+        const baseUrl = getApiBaseUrl();
         const response = await fetch(
-          `http://localhost:8000/api/admin/tenants/${tenant.id}/knowledge/upload-document`,
+          `${baseUrl}/api/admin/tenants/${tenant.id}/knowledge/upload-document`,
           {
             method: 'POST',
             headers: {
@@ -603,8 +604,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
 
     // Send to backend using NEW admin endpoint (bypasses escalation requirement)
     try {
+      const baseUrl = getApiBaseUrl();
       const response = await fetch(
-        `http://localhost:8000/api/tenants/${selectedSession.tenantId}/supporter-chat`,
+        `${baseUrl}/api/tenants/${selectedSession.tenantId}/supporter-chat`,
         {
           method: 'POST',
           headers: {

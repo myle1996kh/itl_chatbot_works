@@ -207,6 +207,8 @@ app.include_router(supporter.router, tags=["supporter"])
 
 # Admin endpoints (Phase 4 & Phase 8)
 from src.api.admin import agents, tools, tenants, knowledge, escalation, sessions as admin_sessions, widgets
+# Public widget endpoints
+from src.api import public_widgets
 
 app.include_router(agents.router, tags=["admin-agents"])
 app.include_router(tools.router, tags=["admin-tools"])
@@ -215,10 +217,40 @@ app.include_router(knowledge.router, tags=["admin-knowledge"])
 app.include_router(escalation.router, tags=["admin-escalations"])
 app.include_router(admin_sessions.router, tags=["admin-sessions"])
 app.include_router(widgets.router, tags=["admin-widgets"])
+app.include_router(public_widgets.router, tags=["public-widgets"])
 
 # Monitoring endpoints (will be added in Phase 11)
 # from src.api.admin import monitoring
 # app.include_router(monitoring.router, tags=["admin-monitoring"])
+
+# Serve static files for frontend
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+
+# Mount the frontend/dist directory
+frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
+
+    # Serve widget.html for /widget/* routes
+    @app.get("/widget/{full_path:path}")
+    async def serve_widget(full_path: str):
+        widget_path = frontend_dist / "widget.html"
+        if widget_path.exists():
+            return HTMLResponse(content=widget_path.read_text(encoding="utf-8"))
+        return JSONResponse(status_code=404, content={"error": "Widget frontend not found"})
+
+    # Serve index.html for root and other routes (SPA fallback)
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Skip API routes
+        if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("redoc") or full_path == "health":
+            return JSONResponse(status_code=404, content={"error": "Not found"})
+            
+        index_path = frontend_dist / "index.html"
+        if index_path.exists():
+            return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+        return JSONResponse(status_code=404, content={"error": "Frontend not found"})
 
 
 if __name__ == "__main__":

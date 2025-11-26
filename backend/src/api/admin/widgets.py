@@ -1,5 +1,5 @@
 """Admin API endpoints for widget configuration management."""
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from sqlalchemy.orm import Session
 from src.config import get_db
 from src.services.widget_service import widget_service
@@ -95,6 +95,7 @@ async def get_widget_config(
     status_code=201
 )
 async def create_widget_config(
+    request: Request,  # Inject request
     tenant_id: str = Path(..., description="Tenant UUID"),
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin_role),
@@ -108,6 +109,7 @@ async def create_widget_config(
     Requires admin role in JWT.
 
     Args:
+        request: FastAPI Request object
         tenant_id: Tenant UUID
 
     Returns:
@@ -138,10 +140,16 @@ async def create_widget_config(
                 detail=f"Tenant not found: {tenant_id}"
             )
 
+        # Get dynamic base URL
+        scheme = request.url.scheme
+        netloc = request.url.netloc
+        dynamic_base_url = f"{scheme}://{netloc}"
+
         # Create widget config
         widget_config = widget_service.create_widget_config(
             db=db,
-            tenant_id=tenant_uuid
+            tenant_id=tenant_uuid,
+            api_base_url=dynamic_base_url  # Pass dynamic URL
         )
         db.commit()
 
@@ -194,6 +202,7 @@ async def create_widget_config(
     response_model=WidgetEmbedCodeResponse
 )
 async def get_widget_embed_code(
+    request: Request,  # Inject request to get dynamic base URL
     tenant_id: str = Path(..., description="Tenant UUID"),
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin_role),
@@ -202,11 +211,13 @@ async def get_widget_embed_code(
     Get widget embed code for a tenant.
 
     Returns ready-to-use HTML snippet that can be copied and pasted
-    into the tenant's website.
+    into the tenant's website. The URL is dynamically generated based
+    on the current request host to support multiple environments.
 
     Requires admin role in JWT.
 
     Args:
+        request: FastAPI Request object
         tenant_id: Tenant UUID
 
     Returns:
@@ -223,17 +234,31 @@ async def get_widget_embed_code(
                        "Please create a tenant using the full creation endpoint."
             )
 
+        # Dynamically generate base URL from request
+        # This handles localhost vs production domains automatically
+        scheme = request.url.scheme
+        netloc = request.url.netloc
+        dynamic_base_url = f"{scheme}://{netloc}"
+
+        # Generate fresh embed code using the dynamic URL
+        dynamic_embed_code = widget_service.generate_embed_code(
+            tenant_id=tenant_id,
+            widget_key=widget_config.widget_key,
+            api_base_url=dynamic_base_url
+        )
+
         logger.info(
             "widget_embed_code_retrieved",
             admin_user=admin_payload.get("sub"),
             tenant_id=tenant_id,
-            widget_key=widget_config.widget_key
+            widget_key=widget_config.widget_key,
+            base_url=dynamic_base_url
         )
 
         return WidgetEmbedCodeResponse(
             tenant_id=str(widget_config.tenant_id),
             widget_key=widget_config.widget_key,
-            embed_code=widget_config.embed_code_snippet,
+            embed_code=dynamic_embed_code,
         )
 
     except ValueError:
@@ -349,6 +374,7 @@ async def update_widget_config(
     response_model=WidgetConfigResponse
 )
 async def regenerate_widget_keys(
+    request: Request,  # Inject request
     tenant_id: str = Path(..., description="Tenant UUID"),
     db: Session = Depends(get_db),
     admin_payload: dict = Depends(require_admin_role),
@@ -362,6 +388,7 @@ async def regenerate_widget_keys(
     Requires admin role in JWT.
 
     Args:
+        request: FastAPI Request object
         tenant_id: Tenant UUID
 
     Returns:
@@ -369,7 +396,17 @@ async def regenerate_widget_keys(
     """
     try:
         tenant_uuid = uuid.UUID(tenant_id)
-        widget_config = widget_service.regenerate_widget_keys(db, tenant_uuid)
+
+        # Get dynamic base URL
+        scheme = request.url.scheme
+        netloc = request.url.netloc
+        dynamic_base_url = f"{scheme}://{netloc}"
+
+        widget_config = widget_service.regenerate_widget_keys(
+            db, 
+            tenant_uuid,
+            api_base_url=dynamic_base_url
+        )
 
         logger.info(
             "widget_keys_regenerated",

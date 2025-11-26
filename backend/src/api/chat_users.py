@@ -31,13 +31,15 @@ async def create_chat_user(
     tenant_id: str = Path(..., description="Tenant UUID"),
     request: ChatUserCreate = Body(...),
     db: Session = Depends(get_db),
-    current_tenant: Optional[str] = Depends(get_current_tenant),
 ) -> ChatUserResponse:
     """
     Create a new chat user from UserInfoForm data.
 
     This endpoint is called when a user first visits and fills in their info.
     Returns existing user if email already exists for this tenant.
+
+    **PUBLIC ENDPOINT** - No authentication required (widget uses this).
+    Tenant isolation is enforced by path parameter validation.
     """
     try:
         # Validate tenant exists

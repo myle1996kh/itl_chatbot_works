@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Tenant, UserInfo, Message, Topic } from '../types';
-import { sendMessage } from '../services/chatService';
+import { sendMessage, getApiBaseUrl } from '../services/chatService';
 import { escalateSession, detectAutoEscalation } from '../services/escalationService';
 import { getAgentNameFromMessage } from '../src/config/topic-agent-mapping';
 import { SendIcon, PaperclipIcon, XMarkIcon, SparklesIcon, UserCircleIcon } from './icons';
@@ -83,8 +83,9 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
     const pollInterval = setInterval(async () => {
       try {
         // Fetch session details from backend to get latest messages
+        const baseUrl = getApiBaseUrl();
         const response = await fetch(
-          `http://localhost:8000/api/${tenant.id}/session/${sessionId}`,
+          `${baseUrl}/api/${tenant.id}/session/${sessionId}`,
           {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' },
@@ -342,11 +343,16 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
   };
 
   const primaryColor = tenant.theme.primaryColor;
-  const headerBgClass = `bg-${primaryColor}`;
-
+  // Ensure primaryColor is a valid CSS color (hex) for inline styles
+  // If it happens to be a tailwind class name like 'blue-600', this won't work with style={{backgroundColor}}
+  // But we updated widget.tsx to pass hex.
+  
   return (
-    <div className="w-96 h-[600px] bg-white rounded-lg shadow-2xl flex flex-col font-sans transition-all duration-300">
-      <header className={`p-4 text-white rounded-t-lg flex justify-between items-center shadow-md ${headerBgClass}`}>
+    <div className="w-full h-full bg-white rounded-lg shadow-2xl flex flex-col font-sans transition-all duration-300 overflow-hidden">
+      <header 
+        className="p-4 text-white flex justify-between items-center shadow-md"
+        style={{ backgroundColor: primaryColor }}
+      >
         <div>
           <h2 className="font-bold text-lg">{tenant.theme.headerText}</h2>
           <p className="text-xs opacity-90">
@@ -372,10 +378,18 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
       <div className="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-            {msg.sender !== 'user' && <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${msg.sender === 'ai' ? 'bg-' + primaryColor : 'bg-gray-400'}`}><SparklesIcon className="h-5 w-5 text-white" /></div>}
-            <div className={`rounded-lg px-3 py-2 max-w-xs shadow-sm ${
-              msg.sender === 'user' ? `bg-${primaryColor} text-white` : 'bg-white text-gray-800'
-            }`}>
+            {msg.sender !== 'user' && (
+              <div 
+                className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center"
+                style={{ backgroundColor: msg.sender === 'ai' ? primaryColor : '#9CA3AF' }}
+              >
+                <SparklesIcon className="h-5 w-5 text-white" />
+              </div>
+            )}
+            <div 
+              className={`rounded-lg px-3 py-2 max-w-xs shadow-sm ${msg.sender === 'user' ? 'text-white' : 'bg-white text-gray-800'}`}
+              style={msg.sender === 'user' ? { backgroundColor: primaryColor } : {}}
+            >
               {msg.sender === 'supporter' && <div className="font-bold text-xs mb-1 text-green-600">{msg.supporterName}</div>}
               {msg.fileInfo && (
                   <div className="text-xs font-mono p-2 bg-black/10 rounded-md mb-2">
@@ -389,7 +403,12 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
         ))}
         {isTyping && (
           <div className="flex items-end gap-2 justify-start">
-             <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center bg-${primaryColor}`}><SparklesIcon className="h-5 w-5 text-white" /></div>
+             <div 
+               className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center"
+               style={{ backgroundColor: primaryColor }}
+             >
+               <SparklesIcon className="h-5 w-5 text-white" />
+             </div>
              <div className="rounded-lg px-3 py-2 max-w-xs shadow-sm bg-white text-gray-800">
                 <div className="flex items-center gap-1">
                     <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0s'}}></span>
@@ -423,7 +442,12 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
           <button onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-800">
               <PaperclipIcon className="h-6 w-6" />
           </button>
-          <button onClick={handleSendMessage} disabled={isTyping || (!input.trim() && !attachedFile)} className={`p-2 rounded-full text-white transition-colors ${isTyping || (!input.trim() && !attachedFile) ? 'bg-gray-400 cursor-not-allowed' : `bg-${primaryColor} hover:bg-${primaryColor.slice(0,-3)}700`}`}>
+          <button 
+            onClick={handleSendMessage} 
+            disabled={isTyping || (!input.trim() && !attachedFile)} 
+            className={`p-2 rounded-full text-white transition-colors ${isTyping || (!input.trim() && !attachedFile) ? 'bg-gray-400 cursor-not-allowed' : ''}`}
+            style={!(isTyping || (!input.trim() && !attachedFile)) ? { backgroundColor: primaryColor } : {}}
+          >
             <SendIcon className="h-6 w-6" />
           </button>
         </div>

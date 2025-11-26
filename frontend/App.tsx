@@ -248,7 +248,7 @@ const App: React.FC = () => {
       {/* Chat Widget Container */}
       <div className="fixed bottom-5 right-5 z-50">
           {isChatOpen ? (
-              <div className="transition-all duration-300 ease-out transform scale-100 opacity-100">
+              <div className="transition-all duration-300 ease-out transform scale-100 opacity-100 w-96 h-[600px]">
                 {userInfo && initialTopicId && userId && sessionId ? (
                   <ChatWidget
                     tenant={{

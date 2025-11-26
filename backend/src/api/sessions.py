@@ -259,13 +259,15 @@ async def create_session(
     user_id: str = Query(..., description="Chat user UUID"),
     request: Optional[SessionCreateRequest] = Body(None),
     db: Session = Depends(get_db),
-    current_tenant: Optional[str] = Depends(get_current_tenant),
 ) -> SessionCreateResponse:
     """
     Create a new chat session for a chat user.
 
     Called before first message to initialize a session.
     Returns the new session_id to use for subsequent messages.
+
+    **PUBLIC ENDPOINT** - No authentication required (widget uses this).
+    Tenant isolation is enforced by path parameter and user validation.
     """
     try:
         # Validate tenant exists
