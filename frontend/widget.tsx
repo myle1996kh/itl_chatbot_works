@@ -222,6 +222,7 @@ const WidgetApp: React.FC = () => {
                 sessionId={sessionId}
                 onClose={() => toggleOpen(false)}
                 onEndSession={() => window.location.reload()}
+                mode="widget"
             />
         </div>
       ) : isStandalone ? (

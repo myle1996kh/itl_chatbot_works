@@ -16,9 +16,10 @@ interface ChatWidgetProps {
   sessionId: string;  // Initial session ID
   onClose: () => void;
   onEndSession: () => void;
+  mode?: 'admin' | 'widget';  // 'admin' = fixed size (App.tsx), 'widget' = full size (widget.tsx)
 }
 
-const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicId, userId, sessionId: initialSessionId, onClose, onEndSession }) => {
+const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicId, userId, sessionId: initialSessionId, onClose, onEndSession, mode = 'admin' }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -346,11 +347,15 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
   // Ensure primaryColor is a valid CSS color (hex) for inline styles
   // If it happens to be a tailwind class name like 'blue-600', this won't work with style={{backgroundColor}}
   // But we updated widget.tsx to pass hex.
-  
+
   return (
-    <div className="w-full h-full bg-white rounded-lg shadow-2xl flex flex-col font-sans transition-all duration-300 overflow-hidden">
-      <header 
-        className="p-4 text-white flex justify-between items-center shadow-md"
+    <div className={`bg-white rounded-lg shadow-2xl flex flex-col font-sans transition-all duration-300 ${
+      mode === 'widget' ? 'w-full h-full overflow-hidden' : 'w-96 h-[600px]'
+    }`}>
+      <header
+        className={`p-4 text-white flex justify-between items-center shadow-md ${
+          mode === 'widget' ? '' : 'rounded-t-lg'
+        }`}
         style={{ backgroundColor: primaryColor }}
       >
         <div>
@@ -379,16 +384,16 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
         {messages.map((msg) => (
           <div key={msg.id} className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
             {msg.sender !== 'user' && (
-              <div 
+              <div
                 className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center"
                 style={{ backgroundColor: msg.sender === 'ai' ? primaryColor : '#9CA3AF' }}
               >
                 <SparklesIcon className="h-5 w-5 text-white" />
               </div>
             )}
-            <div 
+            <div
               className={`rounded-lg px-3 py-2 max-w-xs shadow-sm ${msg.sender === 'user' ? 'text-white' : 'bg-white text-gray-800'}`}
-              style={msg.sender === 'user' ? { backgroundColor: primaryColor } : {}}
+              style={msg.sender === 'user' ? { backgroundColor: primaryColor, color: 'white' } : {}}
             >
               {msg.sender === 'supporter' && <div className="font-bold text-xs mb-1 text-green-600">{msg.supporterName}</div>}
               {msg.fileInfo && (
@@ -403,12 +408,12 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
         ))}
         {isTyping && (
           <div className="flex items-end gap-2 justify-start">
-             <div 
-               className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center"
-               style={{ backgroundColor: primaryColor }}
-             >
-               <SparklesIcon className="h-5 w-5 text-white" />
-             </div>
+            <div
+              className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: primaryColor }}
+            >
+              <SparklesIcon className="h-5 w-5 text-white" />
+            </div>
              <div className="rounded-lg px-3 py-2 max-w-xs shadow-sm bg-white text-gray-800">
                 <div className="flex items-center gap-1">
                     <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0s'}}></span>
@@ -442,11 +447,15 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
           <button onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-800">
               <PaperclipIcon className="h-6 w-6" />
           </button>
-          <button 
-            onClick={handleSendMessage} 
-            disabled={isTyping || (!input.trim() && !attachedFile)} 
-            className={`p-2 rounded-full text-white transition-colors ${isTyping || (!input.trim() && !attachedFile) ? 'bg-gray-400 cursor-not-allowed' : ''}`}
-            style={!(isTyping || (!input.trim() && !attachedFile)) ? { backgroundColor: primaryColor } : {}}
+          <button
+            onClick={handleSendMessage}
+            disabled={isTyping || (!input.trim() && !attachedFile)}
+            className="p-2 rounded-full text-white transition-colors"
+            style={
+              isTyping || (!input.trim() && !attachedFile)
+                ? { backgroundColor: '#D1D5DB', cursor: 'not-allowed' }
+                : { backgroundColor: primaryColor }
+            }
           >
             <SendIcon className="h-6 w-6" />
           </button>
