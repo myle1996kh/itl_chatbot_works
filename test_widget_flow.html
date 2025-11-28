@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentHub Widget - User Flow Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            width: 100%;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .content {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .section {
+            margin-bottom: 40px;
+        }
+
+        .section:last-child {
+            margin-bottom: 0;
+        }
+
+        .section h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .section p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-family: inherit;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            flex: 1;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            flex: 1;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+            font-size: 0.9rem;
+        }
+
+        .status-info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+
+        .status-success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+
+        .status-error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+
+        .code-block {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            color: #333;
+            margin-top: 10px;
+        }
+
+        .widget-iframe {
+            width: 100%;
+            height: 600px;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            margin-top: 20px;
+            background: #f9f9f9;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 600px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AgentHub Widget</h1>
+            <p>User Flow Testing & Configuration</p>
+        </div>
+
+        <div class="content">
+            <!-- Section 1: Configuration -->
+            <div class="section">
+                <h2>📋 Configuration</h2>
+                <p>Enter your widget and tenant configuration to test the flow:</p>
+
+                <div class="form-group">
+                    <label for="apiUrl">API URL *</label>
+                    <input
+                        type="url"
+                        id="apiUrl"
+                        placeholder="https://api.yourdomain.com"
+                        value="http://localhost:8000"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="tenantId">Tenant ID *</label>
+                    <input
+                        type="text"
+                        id="tenantId"
+                        placeholder="e.g., a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="widgetKey">Widget Key *</label>
+                    <input
+                        type="text"
+                        id="widgetKey"
+                        placeholder="e.g., widget-key-123"
+                    >
+                </div>
+
+                <div id="configStatus"></div>
+            </div>
+
+            <!-- Section 2: Test Flow -->
+            <div class="section">
+                <h2>🧪 Test the Flow</h2>
+                <p>Test user information form submission and localStorage persistence:</p>
+
+                <div class="form-group">
+                    <label for="userName">Your Name *</label>
+                    <input
+                        type="text"
+                        id="userName"
+                        placeholder="John Doe"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="userEmail">Your Email *</label>
+                    <input
+                        type="email"
+                        id="userEmail"
+                        placeholder="john@example.com"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="userDept">Department</label>
+                    <select id="userDept">
+                        <option value="General Support">General Support</option>
+                        <option value="Sales">Sales</option>
+                        <option value="Technical Support">Technical Support</option>
+                    </select>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn-primary" onclick="testCreateUser()">Test User Creation</button>
+                    <button class="btn-secondary" onclick="clearLocalStorage()">Clear Storage</button>
+                </div>
+
+                <div id="flowStatus"></div>
+            </div>
+
+            <!-- Section 3: Widget Preview -->
+            <div class="section">
+                <h2>🎨 Widget Preview</h2>
+                <p>Embedded widget preview (iframe):</p>
+
+                <div class="button-group">
+                    <button class="btn-primary" onclick="loadWidget()">Load Widget</button>
+                    <button class="btn-secondary" onclick="clearWidget()">Clear</button>
+                </div>
+
+                <iframe
+                    id="widgetFrame"
+                    class="widget-iframe"
+                    sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                    style="display: none;"
+                ></iframe>
+
+                <div id="widgetStatus"></div>
+            </div>
+
+            <!-- Section 4: Debug Info -->
+            <div class="section">
+                <h2>🔍 Debug Information</h2>
+                <button class="btn-primary" onclick="showDebugInfo()">Show Debug Info</button>
+                <div id="debugInfo"></div>
+            </div>
+
+            <!-- Section 5: Quick Test Endpoints -->
+            <div class="section">
+                <h2>⚡ Quick Endpoint Tests</h2>
+
+                <div class="grid">
+                    <button class="btn-primary" onclick="testWidgetConfig()">Test Widget Config</button>
+                    <button class="btn-primary" onclick="testChatUserEndpoint()">Test Chat User</button>
+                </div>
+
+                <div id="endpointStatus"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const getConfig = () => ({
+            apiUrl: document.getElementById('apiUrl').value,
+            tenantId: document.getElementById('tenantId').value,
+            widgetKey: document.getElementById('widgetKey').value
+        });
+
+        const showStatus = (elementId, message, type) => {
+            const el = document.getElementById(elementId);
+            el.innerHTML = `<div class="status status-${type}">${message}</div>`;
+        };
+
+        const testCreateUser = async () => {
+            const config = getConfig();
+
+            if (!config.apiUrl || !config.tenantId) {
+                showStatus('flowStatus', '❌ Please fill in API URL and Tenant ID', 'error');
+                return;
+            }
+
+            const userName = document.getElementById('userName').value;
+            const userEmail = document.getElementById('userEmail').value;
+            const userDept = document.getElementById('userDept').value;
+
+            if (!userName || !userEmail) {
+                showStatus('flowStatus', '❌ Please fill in name and email', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${config.apiUrl}/api/${config.tenantId}/chat_users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: userName,
+                        email: userEmail,
+                        department: userDept
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // Simulate localStorage save
+                    localStorage.setItem(`agenthub_user_info_${config.tenantId}`, JSON.stringify({
+                        username: userName,
+                        email: userEmail,
+                        department: userDept
+                    }));
+                    localStorage.setItem(`agenthub_user_${config.tenantId}`, data.user_id);
+                    localStorage.setItem(`agenthub_token_${config.tenantId}`, data.token);
+
+                    showStatus('flowStatus', `✅ User created successfully!<br>User ID: ${data.user_id}<br>Token: ${data.token.substring(0, 20)}...`, 'success');
+                } else {
+                    const error = await response.text();
+                    showStatus('flowStatus', `❌ Error: ${error}`, 'error');
+                }
+            } catch (error) {
+                showStatus('flowStatus', `❌ Network error: ${error.message}`, 'error');
+            }
+        };
+
+        const clearLocalStorage = () => {
+            const config = getConfig();
+            localStorage.removeItem(`agenthub_user_info_${config.tenantId}`);
+            localStorage.removeItem(`agenthub_user_${config.tenantId}`);
+            localStorage.removeItem(`agenthub_token_${config.tenantId}`);
+            showStatus('flowStatus', '✅ localStorage cleared', 'success');
+        };
+
+        const loadWidget = () => {
+            const config = getConfig();
+
+            if (!config.apiUrl || !config.tenantId || !config.widgetKey) {
+                showStatus('widgetStatus', '❌ Please fill in all configuration fields', 'error');
+                return;
+            }
+
+            const widgetFrame = document.getElementById('widgetFrame');
+            const widgetUrl = `${config.apiUrl}/widget/${config.widgetKey}?tenant_id=${config.tenantId}`;
+
+            widgetFrame.src = widgetUrl;
+            widgetFrame.style.display = 'block';
+            showStatus('widgetStatus', `✅ Widget loaded from: ${widgetUrl}`, 'success');
+        };
+
+        const clearWidget = () => {
+            const widgetFrame = document.getElementById('widgetFrame');
+            widgetFrame.src = '';
+            widgetFrame.style.display = 'none';
+            document.getElementById('widgetStatus').innerHTML = '';
+        };
+
+        const showDebugInfo = () => {
+            const config = getConfig();
+            const storageData = {};
+
+            // Collect localStorage data
+            for (let key in localStorage) {
+                if (key.includes('agenthub')) {
+                    storageData[key] = localStorage.getItem(key);
+                }
+            }
+
+            const info = `
+                <div class="code-block">
+                    <strong>Configuration:</strong><br>
+                    API URL: ${config.apiUrl}<br>
+                    Tenant ID: ${config.tenantId}<br>
+                    Widget Key: ${config.widgetKey}<br>
+                    <br>
+                    <strong>localStorage Data:</strong><br>
+                    ${Object.keys(storageData).length === 0 ? '(empty)' : JSON.stringify(storageData, null, 2)}
+                </div>
+            `;
+
+            document.getElementById('debugInfo').innerHTML = info;
+        };
+
+        const testWidgetConfig = async () => {
+            const config = getConfig();
+
+            if (!config.apiUrl || !config.tenantId || !config.widgetKey) {
+                showStatus('endpointStatus', '❌ Please fill in all configuration fields', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${config.apiUrl}/api/widget-config?tenant_id=${config.tenantId}&widget_key=${config.widgetKey}`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    showStatus('endpointStatus', `✅ Widget Config OK<br><pre>${JSON.stringify(data, null, 2)}</pre>`, 'success');
+                } else {
+                    showStatus('endpointStatus', `❌ Error: ${data.detail}`, 'error');
+                }
+            } catch (error) {
+                showStatus('endpointStatus', `❌ Network error: ${error.message}`, 'error');
+            }
+        };
+
+        const testChatUserEndpoint = async () => {
+            const config = getConfig();
+
+            if (!config.apiUrl || !config.tenantId) {
+                showStatus('endpointStatus', '❌ Please fill in API URL and Tenant ID', 'error');
+                return;
+            }
+
+            const testData = {
+                username: 'Test User',
+                email: `test_${Date.now()}@example.com`,
+                department: 'General Support'
+            };
+
+            try {
+                const response = await fetch(`${config.apiUrl}/api/${config.tenantId}/chat_users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(testData)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showStatus('endpointStatus', `✅ Chat User Endpoint OK<br><pre>${JSON.stringify(data, null, 2)}</pre>`, 'success');
+                } else {
+                    showStatus('endpointStatus', `❌ Error: ${data.detail}`, 'error');
+                }
+            } catch (error) {
+                showStatus('endpointStatus', `❌ Network error: ${error.message}`, 'error');
+            }
+        };
+    </script>
+</body>
+</html>

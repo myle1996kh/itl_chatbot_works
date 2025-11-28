@@ -1,0 +1,28 @@
+meta {
+  name: Supporter Send Message
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/tenants/:tenant_id/supporter-chat
+  body: json
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "session_id": "",
+    "message": "",
+    "metadata": "",
+    "sender_user_id": ""
+  }
+}

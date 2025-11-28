@@ -392,6 +392,32 @@ async def supporter_send_message(
 
         # Commit
         db.commit()
+        db.refresh(message)
+
+        # NEW: Broadcast message via SSE for real-time delivery
+        from src.services.sse_manager import sse_manager
+        import asyncio
+        
+        try:
+            await sse_manager.broadcast_message(
+                str(request.session_id),
+                {
+                    "type": "new_message",
+                    "message": {
+                        "message_id": str(message.message_id),
+                        "session_id": str(message.session_id),
+                        "role": message.role,
+                        "content": message.content,
+                        "sender_user_id": str(message.sender_user_id),
+                        "supporter_name": supporter.display_name or supporter.username,
+                        "created_at": message.created_at.isoformat(),
+                    }
+                }
+            )
+            logger.debug(f"SSE broadcast sent for message {message.message_id}")
+        except Exception as e:
+            # Don't fail the request if SSE broadcast fails
+            logger.warning(f"SSE broadcast failed: {e}")
 
         logger.info(
             "supporter_message_sent",

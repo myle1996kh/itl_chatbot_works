@@ -1,0 +1,20 @@
+meta {
+  name: Get Session Details
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/sessions/:session_id
+  body: none
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+  session_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

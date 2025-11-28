@@ -8,40 +8,7 @@
  */
 
 import { getJWTToken, setApiBaseUrl, getApiBaseUrl, getCurrentUser } from './authService';
-
-export interface Message {
-  message_id: string;
-  session_id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  created_at: string;
-}
-
-export interface SessionSummary {
-  session_id: string;
-  user_id: string;
-  created_at: string;
-  last_message_at?: string;
-  message_count: number;
-  last_message_preview: string;
-  escalation_status?: string;
-  assigned_supporter_id?: string;
-  metadata?: Record<string, any>;
-}
-
-export interface SessionDetail {
-  session_id: string;
-  tenant_id: string;
-  user_id: string;
-  created_at: string;
-  last_message_at?: string;
-  escalation_status: string;
-  escalation_reason?: string;
-  escalation_requested_at?: string;
-  assigned_supporter_id?: string;
-  messages: Message[];
-  metadata?: Record<string, any>;
-}
+import { SessionSummary, SessionDetail } from '../types';
 
 export interface SessionsListResponse {
   total: number;
@@ -80,11 +47,12 @@ export function getSessionApiBaseUrl(): string {
  */
 export async function getUserSessions(
   tenantId: string,
-  userId: string
+  userId: string,
+  jwt?: string
 ): Promise<SessionSummary[]> {
   try {
     const base = resolveBaseUrl(API_BASE_URL);
-    const token = getJWTToken();
+    const token = jwt || getJWTToken();
     if (!token) {
       console.warn('No JWT token available, cannot fetch sessions');
       return [];
@@ -176,11 +144,12 @@ export async function getTenantSessions(tenantId: string): Promise<SessionSummar
  */
 export async function getSessionDetail(
   tenantId: string,
-  sessionId: string
+  sessionId: string,
+  jwt?: string
 ): Promise<SessionDetail | null> {
   try {
     const base = resolveBaseUrl(API_BASE_URL);
-    const token = getJWTToken();
+    const token = jwt || getJWTToken();
     if (!token) {
       console.warn('No JWT token available, cannot fetch session detail');
       return null;
@@ -226,11 +195,12 @@ export async function getSessionDetail(
  */
 export async function getSessionDetailPublic(
   tenantId: string,
-  sessionId: string
+  sessionId: string,
+  jwt?: string
 ): Promise<SessionDetail | null> {
   try {
     const base = resolveBaseUrl(API_BASE_URL);
-    const token = getJWTToken();
+    const token = jwt || getJWTToken();
     if (!token) {
       console.warn('No JWT token available, cannot fetch session detail');
       return null;
@@ -277,11 +247,12 @@ export async function getSessionDetailPublic(
  */
 export async function getSupporterSessions(
   tenantId: string,
-  supporterId: string
+  supporterId: string,
+  jwt?: string
 ): Promise<SessionSummary[]> {
   try {
     const base = resolveBaseUrl(API_BASE_URL);
-    const token = getJWTToken();
+    const token = jwt || getJWTToken();
     if (!token) {
       console.warn('❌ No JWT token available, cannot fetch supporter sessions');
       console.warn('🔍 Debug info:', {

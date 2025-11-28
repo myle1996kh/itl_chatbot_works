@@ -1,0 +1,27 @@
+meta {
+  name: Update Tenant
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id
+  body: json
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "",
+    "domain": "",
+    "status": ""
+  }
+}

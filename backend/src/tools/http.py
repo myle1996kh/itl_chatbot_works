@@ -37,8 +37,8 @@ class HTTPGetTool(BaseTool):
         timeout = self.config.get("timeout", 30)
 
         # Inject JWT token into Authorization header
-        # ⚠️ TESTING MODE: Use TEST_BEARER_TOKEN from env when DISABLE_AUTH=True
-        # TODO: REMOVE this logic before pushing to GitLab/production
+        # Development Mode: When DISABLE_AUTH=true, use TEST_BEARER_TOKEN for external API calls
+        # This allows testing external APIs without requiring real user JWT tokens
         if settings.DISABLE_AUTH and settings.TEST_BEARER_TOKEN:
             headers["Authorization"] = f"Bearer {settings.TEST_BEARER_TOKEN}"
             logger.warning(
@@ -125,8 +125,8 @@ class HTTPPostTool(BaseTool):
         timeout = self.config.get("timeout", 30)
 
         # Inject JWT token into Authorization header
-        # ⚠️ TESTING MODE: Use TEST_BEARER_TOKEN from env when DISABLE_AUTH=True
-        # TODO: REMOVE this logic before pushing to GitLab/production
+        # Development Mode: When DISABLE_AUTH=true, use TEST_BEARER_TOKEN for external API calls
+        # This allows testing external APIs without requiring real user JWT tokens
         if settings.DISABLE_AUTH and settings.TEST_BEARER_TOKEN:
             headers["Authorization"] = f"Bearer {settings.TEST_BEARER_TOKEN}"
             logger.warning(

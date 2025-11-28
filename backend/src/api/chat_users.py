@@ -23,6 +23,8 @@ from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+from src.api.auth import generate_token
+
 router = APIRouter(prefix="/api", tags=["chat-users"])
 
 
@@ -64,7 +66,17 @@ async def create_chat_user(
                 user_id=existing_user.user_id,
                 email=request.email,
             )
-            return ChatUserResponse.from_orm(existing_user)
+            
+            # Generate token for existing user
+            token = generate_token(
+                user_id=str(existing_user.user_id),
+                tenant_id=tenant_id,
+                role="chat_user"
+            )
+            
+            response = ChatUserResponse.from_orm(existing_user)
+            response.token = token
+            return response
 
         # Create new chat user
         new_user = ChatUser(
@@ -87,8 +99,17 @@ async def create_chat_user(
             user_id=new_user.user_id,
             email=request.email,
         )
+        
+        # Generate token for new user
+        token = generate_token(
+            user_id=str(new_user.user_id),
+            tenant_id=tenant_id,
+            role="chat_user"
+        )
 
-        return ChatUserResponse.from_orm(new_user)
+        response = ChatUserResponse.from_orm(new_user)
+        response.token = token
+        return response
 
     except HTTPException:
         raise

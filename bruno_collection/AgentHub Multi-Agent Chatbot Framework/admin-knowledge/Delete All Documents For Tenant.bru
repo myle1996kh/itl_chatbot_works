@@ -1,0 +1,19 @@
+meta {
+  name: Delete All Documents For Tenant
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/knowledge/all
+  body: none
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

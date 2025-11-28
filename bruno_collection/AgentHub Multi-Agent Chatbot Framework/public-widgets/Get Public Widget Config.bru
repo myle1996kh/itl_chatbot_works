@@ -1,0 +1,16 @@
+meta {
+  name: Get Public Widget Config
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/widget-config
+  body: none
+  auth: none
+}
+
+params:query {
+  tenant_id: 
+  widget_key: 
+}

@@ -63,7 +63,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
         setSessionId(savedSessionId);
       }
     } catch (error) {
-        console.error("Failed to load or parse chat history", error);
+      console.error("Failed to load or parse chat history", error);
     }
   }, [tenant, userInfo, initialTopicId]);
 
@@ -112,7 +112,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
             // Update localStorage
             try {
               localStorage.setItem(getHistoryKey(), JSON.stringify({ messages: backendMessages }));
-            } catch {}
+            } catch { }
           }
         }
       } catch (error) {
@@ -126,16 +126,16 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
   useEffect(() => {
     // Save chat history whenever it changes
     if (messages.length > 0) {
-        try {
-            const sessionData = { messages };
-            localStorage.setItem(getHistoryKey(), JSON.stringify(sessionData));
-        } catch (error) {
-            console.error("Failed to save chat history", error);
-        }
+      try {
+        const sessionData = { messages };
+        localStorage.setItem(getHistoryKey(), JSON.stringify(sessionData));
+      } catch (error) {
+        console.error("Failed to save chat history", error);
+      }
     }
     // Scroll to the bottom
     // messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-   }, [messages]);
+  }, [messages]);
 
   const handleSendMessage = async () => {
     if ((!input.trim() && !attachedFile) || isTyping) return;
@@ -155,7 +155,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
 
     const fileToSend = attachedFile;
     setAttachedFile(null);
-    if(fileInputRef.current) fileInputRef.current.value = "";
+    if (fileInputRef.current) fileInputRef.current.value = "";
 
     let aiResponseText = '';
     let newSessionId = sessionId;
@@ -269,7 +269,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
           setSessionId(newSessionId);
           try {
             localStorage.setItem(getActiveSessionKey(), newSessionId);
-          } catch {}
+          } catch { }
         }
 
         console.log(`✅ Agent response from ${response.data.agent}:`, {
@@ -295,7 +295,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
     setMessages(prev => [...prev, aiMessage]);
     setIsTyping(false);
   };
-  
+
   const handleFileAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setAttachedFile(e.target.files[0]);
@@ -349,13 +349,11 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
   // But we updated widget.tsx to pass hex.
 
   return (
-    <div className={`bg-white rounded-lg shadow-2xl flex flex-col font-sans transition-all duration-300 ${
-      mode === 'widget' ? 'w-full h-full overflow-hidden' : 'w-96 h-[600px]'
-    }`}>
+    <div className={`bg-white rounded-lg shadow-2xl flex flex-col font-sans transition-all duration-300 ${mode === 'widget' ? 'w-full h-full overflow-hidden' : 'w-96 h-[600px]'
+      }`}>
       <header
-        className={`p-4 text-white flex justify-between items-center shadow-md ${
-          mode === 'widget' ? '' : 'rounded-t-lg'
-        }`}
+        className={`p-4 text-white flex justify-between items-center shadow-md ${mode === 'widget' ? '' : 'rounded-t-lg'
+          }`}
         style={{ backgroundColor: primaryColor }}
       >
         <div>
@@ -366,20 +364,20 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
           </p>
         </div>
         <div className="flex items-center gap-2">
-            {!isEscalated && (
-              <button
-                onClick={() => setShowEscalationDialog(true)}
-                className="text-xs font-semibold bg-orange-500 hover:bg-orange-600 px-2 py-1 rounded"
-                title="Request human support"
-              >
-                Escalate
-              </button>
-            )}
-            <button onClick={() => { try { localStorage.removeItem(getActiveSessionKey()); } catch {}; onEndSession(); }} className="text-xs font-semibold bg-white/20 hover:bg-white/30 px-2 py-1 rounded">End Session</button>
-            <button onClick={onClose} className="hover:bg-white/20 p-1 rounded-full"><XMarkIcon className="h-6 w-6" /></button>
+          {!isEscalated && (
+            <button
+              onClick={() => setShowEscalationDialog(true)}
+              className="text-xs font-semibold bg-orange-500 hover:bg-orange-600 px-2 py-1 rounded"
+              title="Request human support"
+            >
+              Escalate
+            </button>
+          )}
+          <button onClick={() => { try { localStorage.removeItem(getActiveSessionKey()); } catch { }; onEndSession(); }} className="text-xs font-semibold bg-white/20 hover:bg-white/30 px-2 py-1 rounded">End Session</button>
+          <button onClick={onClose} className="hover:bg-white/20 p-1 rounded-full"><XMarkIcon className="h-6 w-6" /></button>
         </div>
       </header>
-      
+
       <div className="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -397,13 +395,123 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
             >
               {msg.sender === 'supporter' && <div className="font-bold text-xs mb-1 text-green-600">{msg.supporterName}</div>}
               {msg.fileInfo && (
-                  <div className="text-xs font-mono p-2 bg-black/10 rounded-md mb-2">
-                      Attached: {msg.fileInfo.name}
-                  </div>
+                <div className="text-xs font-mono p-2 bg-black/10 rounded-md mb-2">
+                  Attached: {msg.fileInfo.name}
+                </div>
               )}
-              <div className="prose prose-sm"><Markdown remarkPlugins={[remarkGfm]}>{msg.text}</Markdown></div>
+              <div
+                className="prose prose-sm max-w-none"
+                style={{
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                <Markdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    // Paragraphs - reduce spacing
+                    p: ({ node, children, ...props }) => {
+                      const text = String(children);
+
+                      // Check if it's a step (Bước/Step)
+                      const isStep = /^(Bước|Step)\s+\d+:/i.test(text);
+
+                      // Check if it's a path/source line
+                      const isPath = /^(Đường dẫn|Path|Source|Nguồn):/i.test(text);
+
+                      if (isStep) {
+                        return (
+                          <p
+                            className="mb-1 leading-snug pl-4 relative"
+                            style={{
+                              paddingLeft: '1.5rem',
+                              marginTop: '0.25rem',
+                            }}
+                            {...props}
+                          >
+                            <span className="absolute left-0 font-normal text-gray-700">
+                              •
+                            </span>
+                            {children}
+                          </p>
+                        );
+                      }
+
+                      if (isPath) {
+                        return (
+                          <p
+                            className="mb-1 leading-snug font-normal break-words"
+                            style={{
+                              marginTop: '0.25rem',
+                              wordBreak: 'break-word',
+                              overflowWrap: 'anywhere',
+                            }}
+                            {...props}
+                          >
+                            {children}
+                          </p>
+                        );
+                      }
+
+                      return (
+                        <p
+                          className="mb-1 leading-snug"
+                          style={{ marginTop: '0.25rem' }}
+                          {...props}
+                        >
+                          {children}
+                        </p>
+                      );
+                    },
+
+                    // Headings - make bold, remove color
+                    h1: ({ node, children, ...props }) => (
+                      <h1 className="font-bold text-base mb-1 mt-2 text-gray-900" {...props}>{children}</h1>
+                    ),
+                    h2: ({ node, children, ...props }) => (
+                      <h2 className="font-bold text-base mb-1 mt-2 text-gray-900" {...props}>{children}</h2>
+                    ),
+                    h3: ({ node, children, ...props }) => (
+                      <h3 className="font-bold text-sm mb-1 mt-2 text-gray-900" {...props}>{children}</h3>
+                    ),
+                    h4: ({ node, children, ...props }) => (
+                      <h4 className="font-bold text-sm mb-1 mt-1 text-gray-900" {...props}>{children}</h4>
+                    ),
+
+                    // Lists - reduce spacing
+                    ul: ({ node, children, ...props }) => (
+                      <ul className="mb-1 mt-1 pl-4 space-y-0" {...props}>{children}</ul>
+                    ),
+                    ol: ({ node, children, ...props }) => (
+                      <ol className="mb-1 mt-1 pl-4 space-y-0" {...props}>{children}</ol>
+                    ),
+                    li: ({ node, children, ...props }) => (
+                      <li className="mb-0.5 leading-snug" {...props}>{children}</li>
+                    ),
+
+                    // Links - remove blue color, keep underline
+                    a: ({ node, children, ...props }) => (
+                      <a className="text-gray-900 underline font-normal break-words" {...props}>{children}</a>
+                    ),
+
+                    // Strong/Bold - ensure it's visible
+                    strong: ({ node, children, ...props }) => (
+                      <strong className="font-bold text-gray-900" {...props}>{children}</strong>
+                    ),
+
+                    // Code blocks - reduce spacing
+                    code: ({ node, inline, children, ...props }) => {
+                      if (inline) {
+                        return <code className="bg-gray-100 px-1 rounded text-xs" {...props}>{children}</code>;
+                      }
+                      return <code className="block bg-gray-100 p-2 rounded text-xs mb-1 mt-1" {...props}>{children}</code>;
+                    },
+                  }}
+                >
+                  {msg.text}
+                </Markdown>
+              </div>
             </div>
-             {msg.sender === 'user' && <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center"><UserCircleIcon className="h-6 w-6 text-gray-600" /></div>}
+            {msg.sender === 'user' && <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center"><UserCircleIcon className="h-6 w-6 text-gray-600" /></div>}
           </div>
         ))}
         {isTyping && (
@@ -414,12 +522,12 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
             >
               <SparklesIcon className="h-5 w-5 text-white" />
             </div>
-             <div className="rounded-lg px-3 py-2 max-w-xs shadow-sm bg-white text-gray-800">
-                <div className="flex items-center gap-1">
-                    <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0s'}}></span>
-                    <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.15s'}}></span>
-                    <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.3s'}}></span>
-                </div>
+            <div className="rounded-lg px-3 py-2 max-w-xs shadow-sm bg-white text-gray-800">
+              <div className="flex items-center gap-1">
+                <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></span>
+                <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }}></span>
+                <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }}></span>
+              </div>
             </div>
           </div>
         )}
@@ -428,10 +536,10 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
 
       <div className="p-3 border-t bg-white rounded-b-lg">
         {attachedFile && (
-            <div className="flex items-center justify-between bg-gray-100 p-2 rounded-md mb-2 text-sm">
-                <span className="truncate">{attachedFile.name}</span>
-                <button onClick={() => { setAttachedFile(null); if(fileInputRef.current) fileInputRef.current.value = ""; }} className="p-1 text-gray-500 hover:text-gray-800"><XMarkIcon className="h-4 w-4" /></button>
-            </div>
+          <div className="flex items-center justify-between bg-gray-100 p-2 rounded-md mb-2 text-sm">
+            <span className="truncate">{attachedFile.name}</span>
+            <button onClick={() => { setAttachedFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="p-1 text-gray-500 hover:text-gray-800"><XMarkIcon className="h-4 w-4" /></button>
+          </div>
         )}
         <div className="flex items-center gap-2">
           <input
@@ -445,7 +553,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
           />
           <input type="file" ref={fileInputRef} onChange={handleFileAttach} className="hidden" id="file-upload-chat" />
           <button onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-800">
-              <PaperclipIcon className="h-6 w-6" />
+            <PaperclipIcon className="h-6 w-6" />
           </button>
           <button
             onClick={handleSendMessage}

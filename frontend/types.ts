@@ -45,26 +45,38 @@ export interface Message {
   isTyping?: boolean;
   supporterName?: string;
   fileInfo?: {
-      name: string;
-      size: number;
+    name: string;
+    size: number;
   }
 }
 
-export interface ChatSession {
-    id: string;
-    tenantId: string;
-    userEmail: string;
-    messages: Message[];
-    assignedSupporterId: string | null;
-    escalationStatus?: string;
-    lastActivity: string;
+export interface Attachment {
+  filename: string;
+  content_type: string;
+  size: number;
+  url: string;
 }
 
-export interface KnowledgeDocument {
-    id: string;
-    tenantId: string;
-    topicId: string;
-    fileName: string;
-    content: string;
-    uploadedAt: string;
+export interface MessageDetail {
+  message_id: string;
+  session_id: string;
+  role: string;
+  content: string;
+  created_at: string;
+  supporter_name?: string;
+  attachments?: Attachment[];
+}
+
+export interface SessionSummary {
+  session_id: string;
+  user_id: string;
+  tenant_id: string;
+  created_at: string;
+  updated_at: string;
+  last_message?: string;
+  is_active: boolean;
+}
+
+export interface SessionDetail extends SessionSummary {
+  messages: MessageDetail[];
 }

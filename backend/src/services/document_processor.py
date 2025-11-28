@@ -27,7 +27,7 @@ class DocumentProcessor:
 
     def __init__(
         self,
-        chunk_size: int = 800,
+        chunk_size: int = 900,
         chunk_overlap: int = 150,
         separators: Optional[List[str]] = None
     ):
@@ -104,7 +104,12 @@ class DocumentProcessor:
 
     def load_pdf(self, pdf_path: str) -> List[Document]:
         """
-        Load PDF and return LangChain documents (one per page).
+        Load PDF and return LangChain documents with cleaned text.
+
+        Improvements:
+        - Removes image-related artifacts and captions
+        - Cleans up excessive whitespace
+        - Preserves page structure for better chunking
 
         Args:
             pdf_path: Path to PDF file
@@ -125,13 +130,58 @@ class DocumentProcessor:
 
             # Load PDF using PyPDFLoader
             loader = PyPDFLoader(pdf_path)
-            documents = loader.load()
+            raw_documents = loader.load()
+
+            import re
+
+            # Clean up each page
+            documents = []
+            for doc in raw_documents:
+                text = doc.page_content
+                
+                # Remove common image artifacts
+                # Remove lines that are likely image captions
+                lines = text.split('\n')
+                cleaned_lines = []
+                
+                for line in lines:
+                    line_lower = line.strip().lower()
+                    
+                    # Skip image-related lines
+                    if any(indicator in line_lower for indicator in [
+                        'figure ', 'image ', 'img ', 'photo ', 'picture ', 
+                        'diagram ', 'screenshot', 'illustration'
+                    ]):
+                        # Only skip if it's a short line (likely a caption)
+                        if len(line.strip()) < 100:
+                            continue
+                    
+                    # Skip very short lines that might be image titles
+                    if len(line.strip()) > 0 and len(line.strip()) < 5:
+                        continue
+                    
+                    cleaned_lines.append(line)
+                
+                # Rejoin and clean up whitespace
+                cleaned_text = '\n'.join(cleaned_lines)
+                
+                # Remove excessive newlines (more than 2 consecutive)
+                cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
+                
+                # Remove excessive spaces
+                cleaned_text = re.sub(r' {2,}', ' ', cleaned_text)
+                
+                # Only add if there's meaningful content
+                if cleaned_text.strip():
+                    doc.page_content = cleaned_text.strip()
+                    documents.append(doc)
 
             logger.info(
                 "pdf_loaded_successfully",
                 pdf_path=pdf_path,
                 page_count=len(documents),
-                total_chars=sum(len(doc.page_content) for doc in documents)
+                total_chars=sum(len(doc.page_content) for doc in documents),
+                avg_chars_per_page=sum(len(doc.page_content) for doc in documents) / len(documents) if documents else 0
             )
 
             return documents
@@ -148,10 +198,11 @@ class DocumentProcessor:
         """
         Load DOCX and return LangChain documents with section tracking.
 
-        Pattern from sample_rag.md:
-        - Extract paragraphs and identify headings by style
-        - Track current section while processing
-        - Preserve section_title in metadata
+        Improved approach:
+        - Combines paragraphs within sections to create larger text blocks
+        - Extracts table content as formatted text
+        - Skips image captions and titles
+        - Prevents creation of thousands of tiny documents
 
         Args:
             docx_path: Path to DOCX file
@@ -162,12 +213,9 @@ class DocumentProcessor:
         Metadata includes:
             - source: DOCX file path
             - file_type: '.docx'
-            - paragraph_index: Paragraph position in document
             - section_title: Current section heading
             - section_number: Extracted section number (e.g., "2.3.3")
-            - page: Estimated page number (10 paragraphs per page)
-            - is_heading: Whether this paragraph is a heading
-            - style: Word style name
+            - has_tables: Whether this section contains tables
         """
         try:
             # Validate file exists
@@ -179,81 +227,139 @@ class DocumentProcessor:
             # Import python-docx
             try:
                 from docx import Document as DocxDocument
+                from docx.oxml.text.paragraph import CT_P
+                from docx.oxml.table import CT_Tbl
+                from docx.table import _Cell, Table
+                from docx.text.paragraph import Paragraph
             except ImportError:
                 raise ImportError(
                     "python-docx is required for DOCX processing. "
                     "Install with: pip install python-docx>=1.1.0"
                 )
 
+            import re
+
             # Load DOCX
             doc = DocxDocument(docx_path)
 
-            # Extract all headings first (sample_rag.md line 55-58)
-            headings = []
-            for para in doc.paragraphs:
-                if para.style.name.startswith("Heading"):
-                    headings.append({
-                        'text': para.text.strip(),
-                        'level': para.style.name,
-                    })
+            # Helper function to extract table as text
+            def extract_table_text(table: Table) -> str:
+                """Extract table content as formatted text."""
+                table_text = []
+                for row in table.rows:
+                    row_text = " | ".join(cell.text.strip() for cell in row.cells)
+                    if row_text.strip():
+                        table_text.append(row_text)
+                return "\n".join(table_text)
 
-            logger.debug(
-                "docx_headings_extracted",
-                docx_path=docx_path,
-                heading_count=len(headings)
-            )
+            # Helper function to check if paragraph is likely an image caption/title
+            def is_image_caption(para) -> bool:
+                """Check if paragraph is likely an image caption or title."""
+                text = para.text.strip().lower()
+                style = para.style.name.lower()
+                
+                # Skip if it's a caption style
+                if 'caption' in style or 'figure' in style:
+                    return True
+                
+                # Skip if text starts with common image indicators
+                image_indicators = ['figure', 'image', 'img', 'photo', 'picture', 'diagram']
+                if any(text.startswith(ind) for ind in image_indicators):
+                    return True
+                
+                # Skip very short paragraphs that might be image titles (< 10 chars)
+                if len(text) < 10 and len(text) > 0:
+                    return True
+                
+                return False
 
-            # Process paragraphs with stateful section tracking
+            # Process document by iterating through all elements (paragraphs and tables)
             documents = []
             current_section = None
             current_section_number = None
+            section_content = []
+            section_has_tables = False
 
-            for i, para in enumerate(doc.paragraphs):
-                text = para.text.strip()
-                if not text:
-                    continue
+            def create_section_document():
+                """Create a document from accumulated section content."""
+                if section_content:
+                    combined_text = "\n\n".join(section_content)
+                    if combined_text.strip():
+                        document = Document(
+                            page_content=combined_text,
+                            metadata={
+                                'source': docx_path,
+                                'file_type': '.docx',
+                                'section_title': current_section or 'Unknown',
+                                'section_number': current_section_number,
+                                'has_tables': section_has_tables
+                            }
+                        )
+                        documents.append(document)
+                        logger.debug(
+                            "section_document_created",
+                            section_title=current_section,
+                            content_length=len(combined_text),
+                            has_tables=section_has_tables
+                        )
 
-                is_heading = para.style.name.startswith("Heading")
+            # Iterate through document body elements (paragraphs and tables)
+            for element in doc.element.body:
+                # Check if it's a paragraph
+                if isinstance(element, CT_P):
+                    para = Paragraph(element, doc)
+                    text = para.text.strip()
+                    
+                    if not text:
+                        continue
+                    
+                    # Skip image captions
+                    if is_image_caption(para):
+                        logger.debug("skipping_image_caption", text=text[:50])
+                        continue
+                    
+                    is_heading = para.style.name.startswith("Heading")
+                    
+                    # If this is a heading, save previous section and start new one
+                    if is_heading:
+                        # Save previous section
+                        create_section_document()
+                        
+                        # Start new section
+                        current_section = text
+                        match = re.match(r'^(\d+(?:\.\d+)*)\.\s+', text)
+                        current_section_number = match.group(1) if match else None
+                        section_content = []
+                        section_has_tables = False
+                        
+                        logger.debug(
+                            "new_section_started",
+                            section_title=current_section,
+                            section_number=current_section_number
+                        )
+                    else:
+                        # Add paragraph to current section
+                        section_content.append(text)
+                
+                # Check if it's a table
+                elif isinstance(element, CT_Tbl):
+                    table = Table(element, doc)
+                    table_text = extract_table_text(table)
+                    
+                    if table_text.strip():
+                        section_content.append(f"\n[TABLE]\n{table_text}\n[/TABLE]\n")
+                        section_has_tables = True
+                        logger.debug("table_extracted", rows=len(table.rows))
 
-                # Update current section if this is a heading
-                if is_heading:
-                    current_section = text
-                    # Try to extract section number (e.g., "2.3.3" from "2.3.3. Track and Trace")
-                    import re
-                    match = re.match(r'^(\d+(?:\.\d+)*)\.\s+', text)
-                    current_section_number = match.group(1) if match else None
-
-                    logger.debug(
-                        "docx_section_updated",
-                        section_title=current_section,
-                        section_number=current_section_number
-                    )
-
-                # Create document with section metadata
-                # Estimate page number: 10 paragraphs per page (sample_rag.md line 68)
-                estimated_page = i // 10 + 1
-
-                document = Document(
-                    page_content=text,
-                    metadata={
-                        'source': docx_path,
-                        'file_type': '.docx',
-                        'paragraph_index': i,
-                        'section_title': current_section or 'Unknown',
-                        'section_number': current_section_number,
-                        'page': estimated_page,
-                        'is_heading': is_heading,
-                        'style': para.style.name
-                    }
-                )
-                documents.append(document)
+            # Don't forget the last section
+            create_section_document()
 
             logger.info(
                 "docx_loaded_successfully",
                 docx_path=docx_path,
-                paragraph_count=len(documents),
-                heading_count=len(headings),
-                total_chars=sum(len(doc.page_content) for doc in documents)
+                section_count=len(documents),
+                total_chars=sum(len(doc.page_content) for doc in documents),
+                avg_chars_per_section=sum(len(doc.page_content) for doc in documents) / len(documents) if documents else 0
             )
 
             return documents

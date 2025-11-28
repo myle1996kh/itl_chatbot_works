@@ -78,10 +78,11 @@ export function getEscalationApiBaseUrl(): string {
  */
 export async function detectAutoEscalation(
   message: string,
-  keywords?: string[]
+  keywords?: string[],
+  jwt?: string
 ): Promise<AutoEscalationDetectionResponse> {
   try {
-    const token = getJWTToken();
+    const token = jwt || getJWTToken();
     if (!token) {
       throw new Error('Not authenticated');
     }
@@ -135,10 +136,11 @@ export async function escalateSession(
   sessionId: string,
   reason: string,
   autoDetected: boolean = false,
-  keywords?: string[]
+  keywords?: string[],
+  jwt?: string
 ): Promise<EscalationResponse> {
   try {
-    const token = getJWTToken();
+    const token = jwt || getJWTToken();
     if (!token) {
       throw new Error('Not authenticated');
     }

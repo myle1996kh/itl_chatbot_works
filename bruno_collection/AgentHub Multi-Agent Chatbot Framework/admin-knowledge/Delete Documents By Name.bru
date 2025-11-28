@@ -1,0 +1,20 @@
+meta {
+  name: Delete Documents By Name
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/knowledge/by-name/:document_name
+  body: none
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+  document_name: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

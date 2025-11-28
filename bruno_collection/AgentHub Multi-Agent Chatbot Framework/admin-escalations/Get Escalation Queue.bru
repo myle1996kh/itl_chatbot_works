@@ -1,0 +1,23 @@
+meta {
+  name: Get Escalation Queue
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/escalations
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~status: 
+}
+
+params:path {
+  tenant_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

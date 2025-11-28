@@ -51,4 +51,8 @@
       "ruff>=0.14.6",
       "bandit>=1.9.2",
       "pip-audit>=2.9.0",
+      "paddleocr>=3.3.2",
+      "paddlepaddle>=3.2.2",
+      "pdf2image>=1.17.0",
+      "opencv-python>=4.12.0.88",
 ]

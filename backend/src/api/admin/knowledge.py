@@ -84,6 +84,86 @@ async def get_knowledge_base_stats(
         )
 
 
+@router.get("/tenants/{tenant_id}/knowledge/all")
+async def get_all_documents_for_tenant(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+):
+    """
+    Get ALL documents from tenant's knowledge base.
+    
+    Returns a list of all document chunks with metadata.
+    Useful for verification after deletion.
+    
+    Requires admin role in JWT.
+    """
+    try:
+        # Validate tenant exists
+        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        # Query database directly
+        from sqlalchemy import create_engine, text
+        from src.config import settings
+        
+        engine = create_engine(settings.DATABASE_URL)
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT 
+                        cmetadata->>'doc_id' as doc_id,
+                        cmetadata->>'document_name' as document_name,
+                        cmetadata->>'source' as source,
+                        cmetadata->>'ingested_at' as ingested_at,
+                        LEFT(document, 200) as content_preview
+                    FROM langchain_pg_embedding
+                    WHERE cmetadata->>'tenant_id' = :tenant_id
+                    ORDER BY cmetadata->>'ingested_at' DESC
+                    LIMIT 100
+                """),
+                {"tenant_id": str(tenant_id)}
+            )
+            
+            documents = []
+            for row in result:
+                documents.append({
+                    "doc_id": row.doc_id,
+                    "document_name": row.document_name,
+                    "source": row.source,
+                    "ingested_at": row.ingested_at,
+                    "content_preview": row.content_preview
+                })
+
+        logger.info(
+            "all_documents_listed",
+            admin_user=admin_payload.get("user_id"),
+            tenant_id=tenant_id,
+            document_count=len(documents),
+        )
+
+        return {
+            "success": True,
+            "tenant_id": tenant_id,
+            "document_count": len(documents),
+            "documents": documents
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "get_all_documents_error",
+            tenant_id=tenant_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get all documents: {str(e)}"
+        )
+
+
 @router.delete("/tenants/{tenant_id}/knowledge", response_model=MessageResponse)
 async def delete_documents(
     tenant_id: str = Path(..., description="Tenant UUID"),
@@ -372,8 +452,8 @@ async def upload_document(
                     # Extract chunking parameters from the tool configuration
                     config_data = rag_tool_config.config
                     chunk_config = {
-                        "chunk_size": config_data.get("chunk_size", 800),
-                        "chunk_overlap": config_data.get("chunk_overlap", 200),
+                        "chunk_size": config_data.get("chunk_size", 900),
+                        "chunk_overlap": config_data.get("chunk_overlap", 150),
                         "separators": config_data.get("separators", ["\n\n", "\n", ". ", " ", ""])
                     }
         except Exception as e:

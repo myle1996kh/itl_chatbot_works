@@ -1,0 +1,20 @@
+meta {
+  name: Delete Supporter
+  type: http
+  seq: 10
+}
+
+delete {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/supporters/:supporter_id
+  body: none
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+  supporter_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

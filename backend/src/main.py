@@ -192,7 +192,7 @@ async def root():
 
 
 # Import and include routers
-from src.api import chat, sessions, auth, supporter, chat_users
+from src.api import chat, sessions, auth, supporter, chat_users, sse
 
 # Authentication endpoints (Phase 0)
 app.include_router(auth.router, tags=["auth"])
@@ -201,6 +201,9 @@ app.include_router(auth.router, tags=["auth"])
 app.include_router(chat.router, tags=["chat"])
 app.include_router(chat_users.router, tags=["chat-users"])
 app.include_router(sessions.router, tags=["sessions"])
+
+# SSE endpoints for real-time messaging
+app.include_router(sse.router, tags=["sse"])
 
 # Supporter chat endpoints (Phase 9 - Escalation)
 app.include_router(supporter.router, tags=["supporter"])

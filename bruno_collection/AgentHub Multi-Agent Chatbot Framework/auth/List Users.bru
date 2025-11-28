@@ -1,0 +1,23 @@
+meta {
+  name: List Users
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/auth/users
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~tenant_id: 
+  ~role: 
+  ~status_filter: 
+  ~skip: 
+  ~limit: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

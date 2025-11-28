@@ -1,0 +1,29 @@
+meta {
+  name: Widget Chat
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/widget/chat
+  body: json
+  auth: none
+}
+
+params:query {
+  tenant_id: 
+}
+
+headers {
+  X-Widget-Key: 
+}
+
+body:json {
+  {
+    "message": "",
+    "user_id": "",
+    "session_id": "",
+    "agent_name": "",
+    "metadata": ""
+  }
+}

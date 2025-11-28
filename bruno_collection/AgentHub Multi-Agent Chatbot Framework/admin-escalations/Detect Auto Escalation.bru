@@ -1,0 +1,22 @@
+meta {
+  name: Detect Auto Escalation
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/admin/escalations/detect
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "message": "",
+    "keywords": ""
+  }
+}

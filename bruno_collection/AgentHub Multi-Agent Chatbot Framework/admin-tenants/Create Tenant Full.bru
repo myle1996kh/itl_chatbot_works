@@ -1,0 +1,32 @@
+meta {
+  name: Create Tenant Full
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/admin/tenants/create-new
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "",
+    "domain": "",
+    "status": "",
+    "llm_config": {
+      "provider": "",
+      "model_name": "",
+      "api_key": "",
+      "rate_limit_rpm": 0,
+      "rate_limit_tpm": 0
+    },
+    "agent_ids": [],
+    "tool_ids": []
+  }
+}

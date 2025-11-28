@@ -28,6 +28,7 @@ class ChatUserResponse(BaseModel):
     email: str = Field(..., description="User email address")
     username: str = Field(..., description="User full name or username")
     department: Optional[str] = Field(None, description="Optional department")
+    token: Optional[str] = Field(None, description="JWT token for guest authentication")
     created_at: datetime = Field(..., description="User creation timestamp")
     last_active: datetime = Field(..., description="Last active timestamp")
 

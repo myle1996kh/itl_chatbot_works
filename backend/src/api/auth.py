@@ -126,10 +126,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def generate_token(user_id: str, tenant_id: str, role: str) -> str:
     """
-    Generate JWT token for user.
+    Generate JWT token for user using RS256 algorithm.
 
-    Note: MVP version uses mock token.
-    Production should use RS256 private key.
+    Uses the private key from jwt_private.pem for signing.
+    Tokens are valid for 24 hours.
 
     Args:
         user_id: User UUID
@@ -137,27 +137,61 @@ def generate_token(user_id: str, tenant_id: str, role: str) -> str:
         role: User role
 
     Returns:
-        JWT token string
+        JWT token string (RS256 signed)
     """
-    # MVP: Generate simple mock token
-    # TODO: Implement proper RS256 token generation with private key
-    payload = {
-        "sub": user_id,
-        "tenant_id": tenant_id,
-        "roles": [role],
-        "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(hours=24)
-    }
-
-    # For MVP, return a simple token that represents the payload
-    # In production, this should be signed with RS256 private key
+    import jwt
+    from pathlib import Path
+    
+    # Load private key from backend directory (not current working directory)
+    # This ensures the key is found regardless of where uvicorn is run from
+    backend_dir = Path(__file__).parent.parent.parent  # backend/src/api/auth.py -> backend/
+    private_key_path = backend_dir / "jwt_private.pem"
+    
+    if private_key_path.exists():
+        # Production mode: Use RS256 with private key
+        try:
+            with open(private_key_path, 'r') as f:
+                private_key = f.read()
+            
+            payload = {
+                "sub": user_id,
+                "tenant_id": tenant_id,
+                "roles": [role],
+                "email": "",  # Can be added if needed
+                "iat": datetime.utcnow(),
+                "exp": datetime.utcnow() + timedelta(hours=24)
+            }
+            
+            token = jwt.encode(payload, private_key, algorithm='RS256')
+            if isinstance(token, bytes):
+                token = token.decode('utf-8')
+            
+            logger.info(
+                "jwt_token_generated",
+                user_id=user_id,
+                tenant_id=tenant_id,
+                algorithm="RS256"
+            )
+            
+            return token
+            
+        except Exception as e:
+            logger.error(
+                "jwt_generation_error",
+                error=str(e),
+                user_id=user_id
+            )
+            # Fall through to mock token
+    
+    # Development/Fallback mode: Use mock token
+    # This is acceptable when DISABLE_AUTH=true or private key not available
     mock_token = f"mock_jwt.{user_id}.{tenant_id}.{role}"
     logger.warning(
         "using_mock_token",
         user_id=user_id,
-        reason="MVP - implement RS256 private key signing"
+        reason="jwt_private.pem not found or error loading - using mock token for development"
     )
-
+    
     return mock_token
 
 

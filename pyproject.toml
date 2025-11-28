@@ -44,4 +44,12 @@
       "pytest-html>=4.1.1",
       "langchain-postgres>=0.0.16",
       "python-multipart>=0.0.20",
+      "paddleocr>=3.3.2",
+      "protonx>=0.1.6",
+      "unstructured[all-docs]>=0.18.21",
+      "pillow>=12.0.0",
+      "pdf2image>=1.17.0",
+      "pdfplumber>=0.11.8",
+      "pi-heif>=1.1.1",
+      "pip-audit>=2.9.0",
 ]

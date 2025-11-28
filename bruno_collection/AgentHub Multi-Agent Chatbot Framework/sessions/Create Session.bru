@@ -1,0 +1,19 @@
+meta {
+  name: Create Session
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/:tenant_id/sessions
+  body: json
+  auth: none
+}
+
+params:query {
+  user_id: 
+}
+
+params:path {
+  tenant_id: 
+}

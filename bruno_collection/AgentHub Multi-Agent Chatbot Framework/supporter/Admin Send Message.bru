@@ -1,0 +1,29 @@
+meta {
+  name: Admin Send Message
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/admin/tenants/:tenant_id/sessions/:session_id/messages
+  body: json
+  auth: bearer
+}
+
+params:path {
+  tenant_id: 
+  session_id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "session_id": "",
+    "message": "",
+    "metadata": "",
+    "sender_user_id": ""
+  }
+}
