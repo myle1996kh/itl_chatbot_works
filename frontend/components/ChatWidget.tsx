@@ -499,7 +499,8 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
                     ),
 
                     // Code blocks - reduce spacing
-                    code: ({ node, inline, children, ...props }) => {
+                    code: ({ node, children, className, ...props }: any) => {
+                      const inline = !className?.includes('language-');
                       if (inline) {
                         return <code className="bg-gray-100 px-1 rounded text-xs" {...props}>{children}</code>;
                       }

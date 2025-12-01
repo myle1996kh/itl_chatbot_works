@@ -268,7 +268,7 @@ const WidgetApp: React.FC = () => {
     const primaryColor = config.primary_color || '#3B82F6';
 
     return (
-      <div className={isStandalone && !isOpen ? "" : (isStandalone ? "fixed bottom-5 right-5 z-50 w-96 h-[600px]" : "w-full h-full")}>
+      <div className={isOpen ? (isStandalone ? "fixed bottom-5 right-5 z-50 w-96 h-[600px]" : "w-full h-full") : "fixed bottom-5 right-5 z-50"}>
         {isOpen ? (
           <div className="w-full h-full shadow-lg rounded-lg overflow-hidden">
             <UserInfoForm
@@ -279,10 +279,10 @@ const WidgetApp: React.FC = () => {
               isStandalone={isStandalone}
             />
           </div>
-        ) : isStandalone ? (
+        ) : (
           <button
             onClick={() => setIsOpen(true)}
-            className="fixed bottom-5 right-5 z-50 hover:scale-110 transition-transform duration-200 cursor-pointer rounded-full p-3 shadow-xl"
+            className="hover:scale-110 transition-transform duration-200 cursor-pointer rounded-full p-4 shadow-xl"
             style={{ backgroundColor: primaryColor }}
             aria-label="Open Chat"
           >
@@ -290,7 +290,7 @@ const WidgetApp: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
           </button>
-        ) : null}
+        )}
       </div>
     );
   }
@@ -321,7 +321,7 @@ const WidgetApp: React.FC = () => {
   const primaryColor = tenant.theme.primaryColor;
 
   return (
-    <div className={isStandalone && !isOpen ? "" : (isStandalone ? "fixed bottom-5 right-5 z-50 w-96 h-[600px]" : "w-full h-full")}>
+    <div className={isOpen ? (isStandalone ? "fixed bottom-5 right-5 z-50 w-96 h-[600px]" : "w-full h-full") : "fixed bottom-5 right-5 z-50"}>
       {isOpen ? (
         <div className="w-full h-full shadow-lg rounded-lg overflow-hidden">
           <EmbeddedWidget
@@ -335,10 +335,10 @@ const WidgetApp: React.FC = () => {
             onEndSession={() => window.location.reload()}
           />
         </div>
-      ) : isStandalone ? (
+      ) : (
         <button
           onClick={() => toggleOpen(true)}
-          className="fixed bottom-5 right-5 z-50 hover:scale-110 transition-transform duration-200 cursor-pointer rounded-full p-3 shadow-xl"
+          className="hover:scale-110 transition-transform duration-200 cursor-pointer rounded-full p-4 shadow-xl"
           style={{ backgroundColor: primaryColor }}
           aria-label="Open Chat"
         >
@@ -346,7 +346,7 @@ const WidgetApp: React.FC = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
         </button>
-      ) : null}
+      )}
     </div>
   );
 };
