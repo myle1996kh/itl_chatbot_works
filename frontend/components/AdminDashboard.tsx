@@ -252,10 +252,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
     // Load sessions on mount and when tenant changes
     loadChatSessions();
     // Set up an interval to refresh sessions periodically to catch live updates
+    /* 
     const interval = setInterval(() => {
       loadChatSessions();
     }, 5000); // Refresh every 5 seconds
     return () => clearInterval(interval);
+    */
   }, [filterTenantId]);
 
   useEffect(() => {
