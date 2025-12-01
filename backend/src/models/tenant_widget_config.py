@@ -27,7 +27,7 @@ class TenantWidgetConfig(Base):
     custom_css = Column(Text, nullable=True)  # Custom CSS overrides
 
     # Behavior Settings
-    auto_open = Column(Boolean, default=False)  # Auto-open on page load
+    auto_open = Column(Boolean, default=True)  # Auto-open on page load
     welcome_message = Column(Text, nullable=True)  # Initial greeting
     placeholder_text = Column(String(255), default="Type your message...")
 

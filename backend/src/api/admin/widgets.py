@@ -149,7 +149,8 @@ async def create_widget_config(
         widget_config = widget_service.create_widget_config(
             db=db,
             tenant_id=tenant_uuid,
-            api_base_url=dynamic_base_url  # Pass dynamic URL
+            api_base_url=dynamic_base_url,
+            auto_open=True   # Pass dynamic URL
         )
         db.commit()
 
