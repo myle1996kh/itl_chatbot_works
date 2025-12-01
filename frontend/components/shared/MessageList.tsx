@@ -64,13 +64,13 @@ const MessageList: React.FC<MessageListProps> = ({
                                         if (isStep) {
                                             return (
                                                 <p
-                                                    className="mb-1 leading-snug pl-4 relative"
-                                                    style={{ paddingLeft: '1.5rem' }}
+                                                    className="mb-0 leading-snug pl-4 relative font-bold"
+                                                    style={{ paddingLeft: '1rem' }}
                                                     {...props}
                                                 >
                                                     <span
                                                         className="absolute left-0 font-bold"
-                                                        style={{ color: primaryColor }}
+                                                        style={{ color: 'black' }}
                                                     >
                                                         •
                                                     </span>
@@ -78,15 +78,15 @@ const MessageList: React.FC<MessageListProps> = ({
                                                 </p>
                                             );
                                         }
-                                        return <p className="mb-1 leading-snug" {...props}>{children}</p>;
+                                        return <p className="mb-0 leading-snug" {...props}>{children}</p>;
                                     },
                                     ul: ({ node, children, ...props }) => (
-                                        <ul className="list-disc list-inside mb-1 space-y-0.5" {...props}>
+                                        <ul className="list-disc list-inside mb-0 space-y-0" {...props}>
                                             {children}
                                         </ul>
                                     ),
                                     ol: ({ node, children, ...props }) => (
-                                        <ol className="list-decimal list-inside mb-1 space-y-0.5" {...props}>
+                                        <ol className="list-decimal list-inside mb-0 space-y-0" {...props}>
                                             {children}
                                         </ol>
                                     ),
@@ -94,16 +94,16 @@ const MessageList: React.FC<MessageListProps> = ({
                                         <li className="ml-0 leading-snug" {...props}>{children}</li>
                                     ),
                                     h1: ({ node, children, ...props }) => (
-                                        <h1 className="font-bold text-sm mb-1 mt-1" style={{ color: primaryColor }} {...props}>{children}</h1>
+                                        <h1 className="font-bold text-sm mb-0 mt-1 text-black" {...props}>{children}</h1>
                                     ),
                                     h2: ({ node, children, ...props }) => (
-                                        <h2 className="font-bold text-sm mb-1 mt-1" style={{ color: primaryColor }} {...props}>{children}</h2>
+                                        <h2 className="font-bold text-sm mb-0 mt-1 text-black" {...props}>{children}</h2>
                                     ),
                                     h3: ({ node, children, ...props }) => (
-                                        <h3 className="font-semibold text-xs mb-0.5 mt-0.5" {...props}>{children}</h3>
+                                        <h3 className="font-semibold text-xs mb-0 mt-0.5 text-black" {...props}>{children}</h3>
                                     ),
                                     strong: ({ node, children, ...props }) => (
-                                        <strong className="font-bold" style={{ color: primaryColor }} {...props}>{children}</strong>
+                                        <strong className="font-bold text-black" {...props}>{children}</strong>
                                     ),
                                     em: ({ node, children, ...props }) => (
                                         <em className="italic text-gray-600" {...props}>{children}</em>

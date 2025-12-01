@@ -40,7 +40,7 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
 
     // History Toggle State
     const [showHistory, setShowHistory] = useState(false);
-    const [sessionList, setSessionList] = useState<SessionSummary[]>([]);
+    const [sessionList, setSessionList] = useState<(SessionSummary & { lastUserMessage?: string })[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -194,8 +194,33 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
             setIsLoadingHistory(true);
             try {
                 const sessions = await getUserSessions(tenant.id, userId, token);
-                // Filter out current session and empty sessions if needed
-                setSessionList(sessions.filter(s => s.session_id !== sessionId));
+                // Filter out current session
+                const filteredSessions = sessions.filter(s => s.session_id !== sessionId);
+
+                // Initialize list with existing summary data
+                setSessionList(filteredSessions);
+
+                // Asynchronously fetch details to get the last USER message for each session
+                // We do this after setting the initial list to show UI quickly
+                filteredSessions.forEach(async (session) => {
+                    try {
+                        const detail = await getSessionDetailPublic(tenant.id, session.session_id, token);
+                        if (detail && detail.messages) {
+                            // Find last message from user
+                            const lastUserMsg = [...detail.messages].reverse().find(m => m.role === 'user');
+                            if (lastUserMsg) {
+                                setSessionList(prev => prev.map(s =>
+                                    s.session_id === session.session_id
+                                        ? { ...s, lastUserMessage: lastUserMsg.content }
+                                        : s
+                                ));
+                            }
+                        }
+                    } catch (err) {
+                        console.error(`Failed to fetch details for session ${session.session_id}`, err);
+                    }
+                });
+
             } catch (e) {
                 console.error(e);
             } finally {
@@ -254,7 +279,7 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                                             {new Date(session.created_at).toLocaleString()}
                                         </div>
                                         <div className="text-xs text-gray-500 truncate mt-1">
-                                            {session.last_message || "No messages"}
+                                            {session.lastUserMessage || session.last_message || "No messages"}
                                         </div>
                                     </button>
                                 </li>

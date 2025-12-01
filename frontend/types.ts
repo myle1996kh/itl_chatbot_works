@@ -70,13 +70,38 @@ export interface MessageDetail {
 export interface SessionSummary {
   session_id: string;
   user_id: string;
+  user_name?: string;
+  user_email?: string;
   tenant_id: string;
   created_at: string;
   updated_at: string;
   last_message?: string;
+  last_message_at?: string;
   is_active: boolean;
+  assigned_supporter_id?: string;
+  escalation_status?: 'pending' | 'assigned' | 'resolved';
 }
 
 export interface SessionDetail extends SessionSummary {
   messages: MessageDetail[];
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  tenantId: string;
+  topicId: string;
+  fileName: string;
+  content: string;
+  uploadedAt: string;
+}
+
+export interface ChatSession extends SessionSummary {
+  id: string;
+  tenantId: string;
+  userName?: string;
+  userEmail?: string;
+  messages?: Message[];
+  assignedSupporterId?: string;
+  escalationStatus?: 'pending' | 'assigned' | 'resolved';
+  lastActivity: string;
 }
