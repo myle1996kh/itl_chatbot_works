@@ -79,18 +79,18 @@ escalation_service = get_escalation_service()
 async def detect_auto_escalation(
     request: AutoEscalationDetectionRequest,
     db: Session = Depends(get_db),
-    admin_payload: dict = Depends(require_admin_role),
+    current_user: dict = Depends(get_current_user),
 ) -> AutoEscalationDetectionResponse:
     """
     Check if a message should trigger auto-escalation.
 
     Analyzes the message for escalation keywords and returns detection results.
-    This endpoint is useful for testing and monitoring auto-escalation logic.
+    Available to all authenticated users.
 
     Args:
         request: AutoEscalationDetectionRequest with message and optional custom keywords
         db: Database session
-        admin_payload: JWT payload with admin role
+        current_user: JWT payload of authenticated user
 
     Returns:
         AutoEscalationDetectionResponse with detection results
@@ -138,7 +138,7 @@ async def detect_auto_escalation(
 async def escalate_session(
     tenant_id: str = Path(..., description="UUID of the tenant"),
     db: Session = Depends(get_db),
-    admin_payload: dict = Depends(require_admin_role),
+    current_user: dict = Depends(get_current_user),
     request: EscalationRequest = Body(...),
 ) -> EscalationResponse:
     """
@@ -146,12 +146,13 @@ async def escalate_session(
 
     Creates an escalation request for a session. Can be triggered manually
     (user requests support) or automatically (system detected keywords).
+    Available to all authenticated users.
 
     Args:
         tenant_id: UUID of the tenant
         request: EscalationRequest with session_id, reason, auto_detected flag
         db: Database session
-        admin_payload: JWT payload with admin role
+        current_user: JWT payload of authenticated user
 
     Returns:
         EscalationResponse with escalation details

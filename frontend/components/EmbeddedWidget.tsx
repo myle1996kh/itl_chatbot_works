@@ -172,8 +172,8 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
             return;
         }
         try {
-            const autoDetection = await detectAutoEscalation(escalationReason);
-            await escalateSession(tenant.id, sessionId, escalationReason, autoDetection.should_escalate, autoDetection.detected_keywords);
+            const autoDetection = await detectAutoEscalation(escalationReason, undefined, token);
+            await escalateSession(tenant.id, sessionId, escalationReason, autoDetection.should_escalate, autoDetection.detected_keywords, token);
             setIsEscalated(true);
             setShowEscalationDialog(false);
             setMessages((prev) => [...prev, {
