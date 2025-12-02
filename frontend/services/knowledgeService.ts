@@ -12,6 +12,7 @@ const API_CONFIG = {
   BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
   UPLOAD_ENDPOINT: '/api/admin/tenants/{tenant_id}/knowledge/upload-document',
   STATS_ENDPOINT: '/api/admin/tenants/{tenant_id}/knowledge/stats',
+  GET_ALL_ENDPOINT: '/api/admin/tenants/{tenant_id}/knowledge/all',
   DELETE_ENDPOINT: '/api/admin/tenants/{tenant_id}/knowledge',
   TIMEOUT_MS: 60000, // Longer timeout for file uploads
 };
@@ -59,7 +60,7 @@ interface KnowledgeServiceResponse<T = any> {
 export async function ingestTexts(
   tenantId: string,
   texts: string[],
-  metadatas?: Record<string, any>[] ,
+  metadatas?: Record<string, any>[],
   jwt?: string
 ): Promise<KnowledgeServiceResponse<{ document_count: number }>> {
   try {
@@ -290,6 +291,55 @@ export async function getKnowledgeBaseStats(
 }
 
 /**
+ * Get all documents from the knowledge base
+ * 
+ * @param tenantId - Tenant ID
+ * @param jwt - JWT token for authentication
+ * @returns List of documents
+ */
+export async function getAllDocuments(
+  tenantId: string,
+  jwt?: string
+): Promise<KnowledgeServiceResponse<{ documents: any[]; document_count: number }>> {
+  try {
+    const url = `${API_CONFIG.BASE_URL}${API_CONFIG.GET_ALL_ENDPOINT.replace(
+      '{tenant_id}',
+      tenantId
+    )}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        ...(jwt && { Authorization: `Bearer ${jwt}` }),
+      },
+      signal: AbortSignal.timeout(API_CONFIG.TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `Failed to get documents: HTTP ${response.status}`,
+        code: `HTTP_${response.status}`,
+      };
+    }
+
+    const data = await response.json();
+
+    return {
+      success: true,
+      data,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+      code: 'GET_ALL_DOCS_ERROR',
+    };
+  }
+}
+
+
+/**
  * Delete documents from knowledge base
  *
  * Removes specific documents from the tenant's knowledge base.
@@ -373,6 +423,7 @@ export function getApiBaseUrl(): string {
 export default {
   uploadDocument,
   getKnowledgeBaseStats,
+  getAllDocuments,
   ingestTexts,
   deleteDocuments,
   setApiBaseUrl,

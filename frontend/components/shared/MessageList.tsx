@@ -54,82 +54,15 @@ const MessageList: React.FC<MessageListProps> = ({
                             className="prose prose-sm max-w-none"
                             style={{ whiteSpace: 'pre-wrap' }}
                         >
-                            <Markdown
+                            {/* <Markdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{
-                                    p: ({ node, children, ...props }) => {
-                                        const text = String(children);
-                                        const isStep = /^(Bước|Step)\s+\d+:/i.test(text);
-
-                                        if (isStep) {
-                                            return (
-                                                <p
-                                                    className="mb-0 leading-snug pl-4 relative font-bold"
-                                                    style={{ paddingLeft: '1rem' }}
-                                                    {...props}
-                                                >
-                                                    <span
-                                                        className="absolute left-0 font-bold"
-                                                        style={{ color: 'black' }}
-                                                    >
-                                                        •
-                                                    </span>
-                                                    {children}
-                                                </p>
-                                            );
-                                        }
-                                        return <p className="mb-0 leading-snug" {...props}>{children}</p>;
-                                    },
-                                    ul: ({ node, children, ...props }) => (
-                                        <ul className="list-disc list-inside mb-0 space-y-0" {...props}>
-                                            {children}
-                                        </ul>
-                                    ),
-                                    ol: ({ node, children, ...props }) => (
-                                        <ol className="list-decimal list-inside mb-0 space-y-0" {...props}>
-                                            {children}
-                                        </ol>
-                                    ),
-                                    li: ({ node, children, ...props }) => (
-                                        <li className="ml-0 leading-snug" {...props}>{children}</li>
-                                    ),
-                                    h1: ({ node, children, ...props }) => (
-                                        <h1 className="font-bold text-sm mb-0 mt-1 text-black" {...props}>{children}</h1>
-                                    ),
-                                    h2: ({ node, children, ...props }) => (
-                                        <h2 className="font-bold text-sm mb-0 mt-1 text-black" {...props}>{children}</h2>
-                                    ),
-                                    h3: ({ node, children, ...props }) => (
-                                        <h3 className="font-semibold text-xs mb-0 mt-0.5 text-black" {...props}>{children}</h3>
-                                    ),
-                                    strong: ({ node, children, ...props }) => (
-                                        <strong className="font-bold text-black" {...props}>{children}</strong>
-                                    ),
-                                    em: ({ node, children, ...props }) => (
-                                        <em className="italic text-gray-600" {...props}>{children}</em>
-                                    ),
-                                    code: ({ node, children, ...props }) => (
-                                        <code
-                                            className="bg-gray-200 px-1.5 py-0.5 rounded text-xs font-mono"
-                                            style={{ backgroundColor: 'rgba(0,0,0,0.1)' }}
-                                            {...props}
-                                        >
-                                            {children}
-                                        </code>
-                                    ),
-                                    blockquote: ({ node, children, ...props }) => (
-                                        <blockquote
-                                            className="border-l-4 pl-3 py-1 my-1 italic text-gray-600"
-                                            style={{ borderColor: primaryColor }}
-                                            {...props}
-                                        >
-                                            {children}
-                                        </blockquote>
-                                    ),
+                                    // ... components ...
                                 }}
                             >
                                 {msg.text}
-                            </Markdown>
+                            </Markdown> */}
+                            <div className="whitespace-pre-wrap">{msg.text}</div>
                         </div>
                     </div>
 

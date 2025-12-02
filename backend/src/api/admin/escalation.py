@@ -22,7 +22,7 @@ from src.schemas.admin import (
 from pydantic import BaseModel, EmailStr
 from typing import Optional as OptionalType
 from src.services.escalation_service import get_escalation_service
-from src.middleware.auth import require_admin_role, get_current_user
+from src.middleware.auth import require_admin_role, require_staff_role, get_current_user
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -323,7 +323,7 @@ async def assign_supporter(
 async def resolve_escalation(
     tenant_id: str = Path(..., description="UUID of the tenant"),
     db: Session = Depends(get_db),
-    admin_payload: dict = Depends(require_admin_role),
+    staff_payload: dict = Depends(require_staff_role),
     request: EscalationResolveRequest = Body(...),
 ) -> EscalationResponse:
     """
@@ -332,17 +332,20 @@ async def resolve_escalation(
     Changes escalation status from 'pending' or 'assigned' to 'resolved'.
     Optionally records resolution notes.
 
+    Available to both admin and supporter roles. Supporters can only resolve
+    sessions that are assigned to them.
+
     Args:
         tenant_id: UUID of the tenant
         request: EscalationResolveRequest with session_id and optional resolution_notes
         db: Database session
-        admin_payload: JWT payload with admin role
+        staff_payload: JWT payload with admin or supporter role
 
     Returns:
         EscalationResponse with updated escalation details
 
     Raises:
-        HTTPException: If session not found or not escalated
+        HTTPException: If session not found, not escalated, or supporter lacks permission
     """
     try:
         # Verify tenant exists
@@ -350,6 +353,39 @@ async def resolve_escalation(
         if not tenant:
             logger.warning("resolve_escalation_invalid_tenant", tenant_id=tenant_id)
             raise HTTPException(status_code=404, detail="Tenant not found")
+
+        # Fetch session to check ownership for supporters
+        session = db.query(ChatSession).filter(
+            ChatSession.session_id == request.session_id
+        ).first()
+
+        if not session:
+            logger.warning("resolve_escalation_session_not_found", session_id=request.session_id)
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Ownership validation: supporters can only resolve their own assigned sessions
+        user_roles = staff_payload.get("roles", [])
+        user_id = staff_payload.get("sub")
+
+        if "supporter" in user_roles and "admin" not in user_roles:
+            # This is a supporter (not admin)
+            if str(session.assigned_user_id) != user_id:
+                logger.warning(
+                    "resolve_escalation_ownership_denied",
+                    supporter_id=user_id,
+                    assigned_user_id=str(session.assigned_user_id) if session.assigned_user_id else None,
+                    session_id=request.session_id
+                )
+                raise HTTPException(
+                    status_code=403,
+                    detail="Supporters can only resolve sessions assigned to them"
+                )
+
+            logger.debug(
+                "resolve_escalation_supporter_ownership_verified",
+                supporter_id=user_id,
+                session_id=request.session_id
+            )
 
         # Resolve the escalation
         result = escalation_service.resolve_escalation(
@@ -370,10 +406,16 @@ async def resolve_escalation(
                 detail=result.get("error", "Failed to resolve escalation")
             )
 
-        # Fetch and return the escalation response
-        session = db.query(ChatSession).filter(
-            ChatSession.session_id == request.session_id
-        ).first()
+        # Refresh session from DB to get updated escalation status
+        db.refresh(session)
+
+        logger.info(
+            "escalation_resolved_by_staff",
+            session_id=request.session_id,
+            staff_id=user_id,
+            staff_roles=user_roles,
+            tenant_id=tenant_id
+        )
 
         return EscalationResponse(
             session_id=str(session.session_id),

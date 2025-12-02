@@ -1,39 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { login, getCurrentUser } from '../services/authService';
-import { getTenants, TenantResponse } from '../services/tenantService';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { login } from '../services/authService';
 import { UserCircleIcon } from '../components/icons';
 
-interface LoginPageProps {
-  onLoginSuccess: (user: any) => void;
-}
-
-const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+const LoginPage: React.FC = () => {
+  const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [tenants, setTenants] = useState<TenantResponse[]>([]);
-  const [selectedTenant, setSelectedTenant] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [loadingTenants, setLoadingTenants] = useState(true);
 
-  // Load tenants from backend on mount
-  useEffect(() => {
-    const loadTenants = async () => {
-      try {
-        const tenantsData = await getTenants();
-        setTenants(tenantsData);
-        if (tenantsData.length > 0) {
-          setSelectedTenant(tenantsData[0].tenant_id);
-        }
-        setLoadingTenants(false);
-      } catch (err) {
-        console.error('Failed to load tenants:', err);
-        setError('Failed to load tenants');
-        setLoadingTenants(false);
-      }
-    };
-    loadTenants();
-  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,9 +17,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      // For now, use username as email in the login function
-      // Backend now accepts both username and email
-      const response = await login(username, password, selectedTenant);
+      const response = await login(username, password);
 
       if (!response.success || !response.data) {
         setError(response.error || 'Login failed');
@@ -51,19 +25,23 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         return;
       }
 
-      // Store token and user info
       localStorage.setItem('jwtToken', response.data.token);
       localStorage.setItem('currentUser', JSON.stringify(response.data));
 
-      console.log('✅ Login successful', {
+      console.log('🔓 Login successful', {
         userId: response.data.user_id,
         role: response.data.role,
       });
 
-      // Call success callback
-      onLoginSuccess(response.data);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Login failed');
+      if (response.data.role === 'admin') {
+        navigate('/admin/dashboard');
+      } else if (response.data.role === 'supporter') {
+        navigate('/support');
+      } else {
+        setError('Invalid user role');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -90,31 +68,6 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               <p>{error}</p>
             </div>
           )}
-
-          {/* Tenant Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tenant
-            </label>
-            <select
-              value={selectedTenant}
-              onChange={(e) => setSelectedTenant(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              disabled={loading || loadingTenants}
-            >
-              {loadingTenants ? (
-                <option value="">Loading tenants...</option>
-              ) : tenants.length === 0 ? (
-                <option value="">No tenants available</option>
-              ) : (
-                tenants.map((tenant) => (
-                  <option key={tenant.tenant_id} value={tenant.tenant_id}>
-                    {tenant.name}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
 
           {/* Username */}
           <div>
@@ -162,11 +115,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         <div className="border-t border-gray-200 p-4 bg-gray-50 rounded-b-lg text-center text-sm text-gray-600">
           <p>Use your company credentials to access the admin dashboard.</p>
           <p className="text-xs text-gray-500 mt-2">
-            Supported roles: Admin, Staff, Tenant User
+            Supported roles: Admin, Supporter, Tenant User
           </p>
         </div>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 };
 

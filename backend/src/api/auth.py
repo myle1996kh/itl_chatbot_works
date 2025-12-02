@@ -29,7 +29,7 @@ class LoginRequest(BaseModel):
     username: Union[str, None] = None
     email: Union[str, None] = None
     password: str
-    tenant_id: str
+    tenant_id: Optional[str] = None
 
 
 class LoginResponse(BaseModel):
@@ -54,7 +54,7 @@ class CreateUserRequest(BaseModel):
     username: str
     password: str
     display_name: Optional[str] = None
-    role: str  # 'tenant_user', 'staff', 'admin'
+    role: str  # 'tenant_user', 'supporter', 'admin'
     tenant_id: str
 
 
@@ -249,19 +249,35 @@ def login(
         HTTPException: If credentials invalid or user not found
     """
     try:
-        # Verify tenant exists
-        tenant = db.query(Tenant).filter(Tenant.tenant_id == request.tenant_id).first()
-        if not tenant:
-            logger.warning(
-                "login_failed",
-                email=request.email,
-                reason="tenant_not_found",
-                tenant_id=request.tenant_id
-            )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Tenant not found"
-            )
+        # If tenant_id is not provided, try to find user by email/username to get tenant_id
+        if not request.tenant_id:
+            user = None
+            if request.email:
+                user = db.query(User).filter(User.email == request.email).first()
+            elif request.username:
+                user = db.query(User).filter(User.username == request.username).first()
+            
+            if user:
+                request.tenant_id = str(user.tenant_id)
+            else:
+                # User not found, but we'll let the standard error handling catch it below
+                # or raise generic error here to prevent enumeration
+                pass
+
+        # Verify tenant exists (if we have a tenant_id now)
+        if request.tenant_id:
+            tenant = db.query(Tenant).filter(Tenant.tenant_id == request.tenant_id).first()
+            if not tenant:
+                logger.warning(
+                    "login_failed",
+                    email=request.email,
+                    reason="tenant_not_found",
+                    tenant_id=request.tenant_id
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Tenant not found"
+                )
 
         # Find user by username or email (scoped to tenant)
         if request.username:
@@ -271,7 +287,6 @@ def login(
                     User.username == request.username
                 )
             ).first()
-            lookup_field = request.username
         elif request.email:
             user = db.query(User).filter(
                 and_(
@@ -279,7 +294,6 @@ def login(
                     User.email == request.email
                 )
             ).first()
-            lookup_field = request.email
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -728,7 +742,7 @@ def list_users(
 
     Query Parameters:
         tenant_id: Filter by tenant (optional)
-        role: Filter by role (tenant_user, staff, admin) (optional)
+        role: Filter by role (tenant_user, supporter, admin) (optional)
         status_filter: Filter by status (active, inactive, suspended) (optional)
         skip: Number of records to skip (default: 0)
         limit: Max records to return (default: 100)
@@ -819,7 +833,7 @@ def list_tenant_users(
 
     Args:
         tenant_id: Tenant UUID
-        role: Optional role filter (tenant_user, staff, admin)
+        role: Optional role filter (tenant_user, supporter, admin)
         skip: Number of records to skip
         limit: Max records to return
 

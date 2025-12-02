@@ -398,3 +398,145 @@ async def require_admin_role(
     )
 
     return payload
+
+
+async def require_staff_role(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> Dict[str, Any]:
+    """
+    Dependency to require admin or supporter role in JWT token.
+
+    Allows both admin and supporter users to access staff-only endpoints
+    (e.g., resolving escalations, viewing session details).
+
+    Skips auth checks for CORS preflight (OPTIONS) requests.
+
+    Args:
+        request: FastAPI request object
+        credentials: HTTP Bearer credentials
+
+    Returns:
+        JWT payload if user has admin or supporter role
+
+    Raises:
+        HTTPException: If user doesn't have admin or supporter role (403 Forbidden)
+    """
+    # CORS PREFLIGHT: OPTIONS requests don't need auth
+    if request.method == "OPTIONS":
+        logger.debug("Skipping auth for CORS preflight OPTIONS request")
+        return {
+            "sub": "cors_preflight",
+            "roles": ["admin"],
+            "cors_preflight": True
+        }
+
+    # TESTING MODE: Return mock staff user
+    if settings.DISABLE_AUTH:
+        if settings.ENVIRONMENT == "production":
+            logger.critical(
+                "DISABLE_AUTH is true in production - REJECTING REQUEST",
+                extra={"environment": settings.ENVIRONMENT}
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Authentication bypass not allowed in production"
+            )
+
+        logger.warning(
+            "staff_auth_bypassed",
+            reason="DISABLE_AUTH=True (development only)",
+            environment=settings.ENVIRONMENT
+        )
+        return {
+            "sub": "dev_staff_user",
+            "tenant_id": "",
+            "roles": ["admin"],
+            "test_mode": True
+        }
+
+    # PRODUCTION MODE: Verify staff role (admin or supporter)
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Bearer token required",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    token = credentials.credentials
+
+    # Handle mock JWT tokens (format: mock_jwt.{user_id}.{tenant_id}.{role})
+    if token.startswith("mock_jwt."):
+        parts = token.split(".")
+        logger.info(
+            "mock_jwt_token_parsing_staff",
+            token_length=len(token),
+            parts_count=len(parts),
+            parts=parts[:4] if len(parts) >= 4 else parts
+        )
+        if len(parts) >= 4:
+            user_id = parts[1]
+            tenant_id = parts[2]
+            role = parts[3]
+
+            logger.info(
+                "mock_token_parsed_staff",
+                user_id=user_id,
+                tenant_id=tenant_id,
+                role=role
+            )
+
+            if role in ["admin", "supporter"]:
+                logger.debug(
+                    "staff_authenticated_mock_token",
+                    user_id=user_id,
+                    tenant_id=tenant_id,
+                    role=role
+                )
+                return {
+                    "sub": user_id,
+                    "tenant_id": tenant_id,
+                    "roles": [role],
+                    "role": role,
+                    "mock_token": True
+                }
+            else:
+                logger.warning(
+                    "staff_access_denied_mock_token",
+                    user_id=user_id,
+                    tenant_id=tenant_id,
+                    role=role
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin or supporter role required"
+                )
+
+    # Real RS256 JWT token
+    payload = decode_jwt(token)
+
+    roles = payload.get("roles", [])
+    allowed_roles = ["admin", "supporter"]
+
+    # Check if user has at least one of the allowed roles
+    if not any(role in roles for role in allowed_roles):
+        logger.warning(
+            "staff_access_denied",
+            user_id=payload.get("sub"),
+            tenant_id=payload.get("tenant_id"),
+            roles=roles,
+            allowed_roles=allowed_roles
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or supporter role required"
+        )
+
+    logger.info(
+        "staff_authenticated",
+        user_id=payload.get("sub"),
+        tenant_id=payload.get("tenant_id"),
+        roles=roles
+    )
+
+    return payload

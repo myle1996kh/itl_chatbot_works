@@ -3,7 +3,7 @@
  *
  * Handles communication with the ITL Backend API for user authentication,
  * login, user management, and session management.
- * Supports multiple user roles: tenant_user, staff, admin
+ * Supports multiple user roles: tenant_user, supporter, admin
  */
 
 /**
@@ -27,7 +27,7 @@ const API_CONFIG = {
 export interface LoginRequest {
   username: string;
   password: string;
-  tenant_id: string;
+  tenant_id?: string;
 }
 
 export interface LoginResponse {
@@ -35,7 +35,7 @@ export interface LoginResponse {
   email: string;
   username: string;
   display_name?: string;
-  role: string; // 'tenant_user', 'staff', 'admin'
+  role: string; // 'tenant_user', 'supporter', 'admin'
   tenant_id: string;
   token: string;
   status: string; // 'active', 'inactive', 'suspended'
@@ -45,22 +45,6 @@ export interface CreateUserRequest {
   email: string;
   username: string;
   password: string;
-  display_name?: string;
-  role: string; // 'tenant_user', 'staff', 'admin'
-  tenant_id: string;
-}
-
-export interface UpdateUserRequest {
-  email?: string;
-  username?: string;
-  display_name?: string;
-  status?: string;
-}
-
-export interface UserResponse {
-  user_id: string;
-  email: string;
-  username: string;
   display_name?: string;
   role: string;
   status: string;
@@ -81,6 +65,32 @@ export interface AuthServiceResponse<T = any> {
   code?: string;
 }
 
+export interface UserResponse {
+  user_id: string;
+  email: string;
+  username: string;
+  display_name?: string;
+  role: string; // 'tenant_user', 'supporter', 'admin'
+  tenant_id: string;
+  status: string; // 'active', 'inactive', 'suspended'
+  created_at?: string;
+  last_login?: string;
+}
+
+export interface UpdateUserRequest {
+  email?: string;
+  username?: string;
+  display_name?: string;
+  role?: string;
+  status?: string;
+  tenant_id?: string;
+}
+
+export interface UserListResponse {
+  users: UserResponse[];
+  total: number;
+}
+
 /**
  * Current authenticated user session
  */
@@ -92,62 +102,33 @@ export interface AuthSession {
 
 /**
  * Login user with username and password
- *
- * Authenticates user against the backend and returns user info with JWT token.
- * The token is stored in localStorage for subsequent API requests.
- *
- * @param username - User username
- * @param password - User password
- * @param tenantId - Tenant ID
- * @returns Login response with user info and token
- *
- * @example
- * const response = await login(
- *   'admin',
- *   'SecurePassword123',
- *   '550e8400-e29b-41d4-a716-446655440000'
- * );
- *
- * if (response.success && response.data) {
- *   localStorage.setItem('jwtToken', response.data.token);
- *   localStorage.setItem('currentUser', JSON.stringify(response.data));
- * }
  */
 export async function login(
   username: string,
   password: string,
-  tenantId: string
+  tenantId?: string
 ): Promise<AuthServiceResponse<LoginResponse>> {
   try {
     const url = `${API_CONFIG.BASE_URL}${API_CONFIG.LOGIN_ENDPOINT}`;
 
-    console.log('🔐 Attempting login', {
-      username,
-      tenantId,
-    });
+    const payload: LoginRequest = { username, password };
+    if (tenantId) {
+      payload.tenant_id = tenantId;
+    }
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        username,
-        password,
-        tenant_id: tenantId,
-      }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(API_CONFIG.TIMEOUT_MS),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       const errorMessage =
-        errorData.detail || errorData.message || `HTTP ${response.status}: ${response.statusText}`;
-
-      console.error('❌ Login failed', {
-        status: response.status,
-        error: errorMessage,
-      });
+        (errorData as any).detail || (errorData as any).message || `HTTP ${response.status}: ${response.statusText}`;
 
       return {
         success: false,
@@ -158,25 +139,12 @@ export async function login(
 
     const data: LoginResponse = await response.json();
 
-    console.log('✅ Login successful', {
-      userId: data.user_id,
-      username: data.username,
-      role: data.role,
-      tenantId: data.tenant_id,
-    });
-
     return {
       success: true,
       data,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-
-    console.error('❌ Auth service error - login', {
-      error: errorMessage,
-      username,
-    });
-
     return {
       success: false,
       error: errorMessage,
@@ -185,40 +153,12 @@ export async function login(
   }
 }
 
-/**
- * Create a new user (admin only)
- *
- * Admin must belong to same tenant as new user.
- *
- * @param request - User creation details
- * @param adminToken - JWT token of admin user
- * @returns Created user response
- *
- * @example
- * const response = await createUser(
- *   {
- *     email: 'newstaff@company.com',
- *     username: 'newstaff',
- *     password: 'SecurePassword123',
- *     display_name: 'New Staff Member',
- *     role: 'staff',
- *     tenant_id: '550e8400-e29b-41d4-a716-446655440000',
- *   },
- *   'eyJhbGciOiJSUzI1NiIs...'
- * );
- */
 export async function createUser(
   request: CreateUserRequest,
   adminToken: string
 ): Promise<AuthServiceResponse<UserResponse>> {
   try {
     const url = `${API_CONFIG.BASE_URL}${API_CONFIG.CREATE_USER_ENDPOINT}`;
-
-    console.log('👤 Creating user', {
-      email: request.email,
-      role: request.role,
-      tenantId: request.tenant_id,
-    });
 
     const response = await fetch(url, {
       method: 'POST',
@@ -233,12 +173,7 @@ export async function createUser(
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       const errorMessage =
-        errorData.detail || errorData.message || `HTTP ${response.status}: ${response.statusText}`;
-
-      console.error('❌ Create user failed', {
-        status: response.status,
-        error: errorMessage,
-      });
+        (errorData as any).detail || (errorData as any).message || `HTTP ${response.status}: ${response.statusText}`;
 
       return {
         success: false,
@@ -249,23 +184,12 @@ export async function createUser(
 
     const data: UserResponse = await response.json();
 
-    console.log('✅ User created successfully', {
-      userId: data.user_id,
-      email: data.email,
-      role: data.role,
-    });
-
     return {
       success: true,
       data,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-
-    console.error('❌ Auth service error - createUser', {
-      error: errorMessage,
-      email: request.email,
-    });
 
     return {
       success: false,
@@ -275,28 +199,12 @@ export async function createUser(
   }
 }
 
-/**
- * Get user details (admin only)
- *
- * @param userId - User ID to retrieve
- * @param adminToken - JWT token of admin user
- * @returns User response
- *
- * @example
- * const response = await getUser(
- *   'user-uuid-here',
- *   'eyJhbGciOiJSUzI1NiIs...'
- * );
- */
 export async function getUser(
   userId: string,
   adminToken: string
 ): Promise<AuthServiceResponse<UserResponse>> {
   try {
-    const url = `${API_CONFIG.BASE_URL}${API_CONFIG.GET_USER_ENDPOINT.replace(
-      '{user_id}',
-      userId
-    )}`;
+    const url = `${API_CONFIG.BASE_URL}${API_CONFIG.GET_USER_ENDPOINT.replace('{user_id}', userId)}`;
 
     const response = await fetch(url, {
       method: 'GET',
@@ -329,31 +237,50 @@ export async function getUser(
   }
 }
 
-/**
- * Update user details (admin only)
- *
- * @param userId - User ID to update
- * @param request - Update details
- * @param adminToken - JWT token of admin user
- * @returns Updated user response
- *
- * @example
- * const response = await updateUser(
- *   'user-uuid-here',
- *   { display_name: 'Updated Name', status: 'active' },
- *   'eyJhbGciOiJSUzI1NiIs...'
- * );
- */
+export async function getUsers(
+  adminToken: string
+): Promise<AuthServiceResponse<UserListResponse>> {
+  try {
+    const url = `${API_CONFIG.BASE_URL}/api/auth/users`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+      },
+      signal: AbortSignal.timeout(API_CONFIG.TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `Failed to get users: HTTP ${response.status}`,
+        code: `HTTP_${response.status}`,
+      };
+    }
+
+    const data = await response.json();
+
+    return {
+      success: true,
+      data,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+      code: 'GET_USERS_ERROR',
+    };
+  }
+}
+
 export async function updateUser(
   userId: string,
   request: UpdateUserRequest,
   adminToken: string
 ): Promise<AuthServiceResponse<UserResponse>> {
   try {
-    const url = `${API_CONFIG.BASE_URL}${API_CONFIG.UPDATE_USER_ENDPOINT.replace(
-      '{user_id}',
-      userId
-    )}`;
+    const url = `${API_CONFIG.BASE_URL}${API_CONFIG.UPDATE_USER_ENDPOINT.replace('{user_id}', userId)}`;
 
     const response = await fetch(url, {
       method: 'PUT',
@@ -388,28 +315,12 @@ export async function updateUser(
   }
 }
 
-/**
- * Delete user (admin only)
- *
- * @param userId - User ID to delete
- * @param adminToken - JWT token of admin user
- * @returns Success message
- *
- * @example
- * const response = await deleteUser(
- *   'user-uuid-here',
- *   'eyJhbGciOiJSUzI1NiIs...'
- * );
- */
 export async function deleteUser(
   userId: string,
   adminToken: string
 ): Promise<AuthServiceResponse> {
   try {
-    const url = `${API_CONFIG.BASE_URL}${API_CONFIG.DELETE_USER_ENDPOINT.replace(
-      '{user_id}',
-      userId
-    )}`;
+    const url = `${API_CONFIG.BASE_URL}${API_CONFIG.DELETE_USER_ENDPOINT.replace('{user_id}', userId)}`;
 
     const response = await fetch(url, {
       method: 'DELETE',
@@ -440,21 +351,6 @@ export async function deleteUser(
   }
 }
 
-/**
- * Change user password
- *
- * @param oldPassword - Current password
- * @param newPassword - New password
- * @param userToken - JWT token of user
- * @returns Success message
- *
- * @example
- * const response = await changePassword(
- *   'OldPassword123',
- *   'NewPassword456',
- *   'eyJhbGciOiJSUzI1NiIs...'
- * );
- */
 export async function changePassword(
   oldPassword: string,
   newPassword: string,
@@ -480,7 +376,7 @@ export async function changePassword(
       const errorData = await response.json().catch(() => ({}));
       return {
         success: false,
-        error: errorData.detail || 'Failed to change password',
+        error: (errorData as any).detail || 'Failed to change password',
         code: `HTTP_${response.status}`,
       };
     }
@@ -498,11 +394,6 @@ export async function changePassword(
   }
 }
 
-/**
- * Get current logged-in user from localStorage
- *
- * @returns Current user or null if not logged in
- */
 export function getCurrentUser(): LoginResponse | null {
   try {
     const userJson = localStorage.getItem('currentUser');
@@ -514,42 +405,19 @@ export function getCurrentUser(): LoginResponse | null {
   }
 }
 
-/**
- * Get JWT token from localStorage
- *
- * @returns JWT token or null if not logged in
- */
 export function getJWTToken(): string | null {
   return localStorage.getItem('jwtToken');
 }
 
-/**
- * Check if user is authenticated
- *
- * @returns True if user has valid token
- */
 export function isAuthenticated(): boolean {
   return !!getJWTToken() && !!getCurrentUser();
 }
 
-/**
- * Check if current user has a specific role
- *
- * @param requiredRole - Role to check
- * @returns True if user has this role
- */
 export function hasRole(requiredRole: string): boolean {
   const user = getCurrentUser();
   return user?.role === requiredRole;
 }
 
-/**
- * Decode JWT token to extract payload (without verification)
- * Note: This is for client-side use only. Always verify on the server.
- *
- * @param token - JWT token
- * @returns Decoded payload or null if invalid
- */
 function decodeJWT(token: string): Record<string, any> | null {
   try {
     const parts = token.split('.');
@@ -563,12 +431,6 @@ function decodeJWT(token: string): Record<string, any> | null {
   }
 }
 
-/**
- * Get user role from JWT token
- * Prefers JWT decoding over localStorage for security
- *
- * @returns User role or null
- */
 export function getUserRole(): string | null {
   const token = getJWTToken();
   if (token) {
@@ -578,52 +440,28 @@ export function getUserRole(): string | null {
     }
   }
 
-  // Fallback to localStorage
   const user = getCurrentUser();
   return user?.role || null;
 }
 
-/**
- * Check if current user is admin
- *
- * @returns True if user is admin
- */
 export function isAdmin(): boolean {
   return getUserRole() === 'admin';
 }
 
-/**
- * Check if current user is staff
- *
- * @returns True if user is staff
- */
-export function isStaff(): boolean {
-  return getUserRole() === 'staff' || getUserRole() === 'supporter';
+export function isSupporter(): boolean {
+  return getUserRole() === 'supporter';
 }
 
-/**
- * Logout user
- *
- * Clears localStorage and session data.
- */
 export function logout(): void {
   localStorage.removeItem('jwtToken');
   localStorage.removeItem('currentUser');
-  console.log('✅ User logged out');
+  console.log('User logged out');
 }
 
-/**
- * Set the API base URL (useful for testing or dynamic configuration)
- *
- * @param baseUrl - New base URL
- */
 export function setApiBaseUrl(baseUrl: string): void {
   API_CONFIG.BASE_URL = baseUrl;
 }
 
-/**
- * Get current API base URL
- */
 export function getApiBaseUrl(): string {
   return API_CONFIG.BASE_URL;
 }
@@ -632,6 +470,7 @@ export default {
   login,
   createUser,
   getUser,
+  getUsers,
   updateUser,
   deleteUser,
   changePassword,
@@ -640,7 +479,7 @@ export default {
   isAuthenticated,
   hasRole,
   isAdmin,
-  isStaff,
+  isSupporter,
   logout,
   setApiBaseUrl,
   getApiBaseUrl,

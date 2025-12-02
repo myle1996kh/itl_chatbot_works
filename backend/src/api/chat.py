@@ -21,10 +21,28 @@ from src.middleware.auth import get_current_tenant, verify_tenant_access
 from src.utils.logging import get_logger
 from src.services.llm_manager import llm_manager
 from src.models.tenant_llm_config import TenantLLMConfig
+from src.services.escalation_service import get_escalation_service
+from pydantic import BaseModel
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api", tags=["chat"])
+
+# ============================================================================
+# ESCALATION SCHEMAS
+# ============================================================================
+
+class PublicEscalationRequest(BaseModel):
+    """Public escalation request for widget users."""
+    session_id: str
+    reason: str
+
+class PublicEscalationResponse(BaseModel):
+    """Public escalation response."""
+    success: bool
+    session_id: str
+    escalation_status: str
+    message: str
 
 
 def _extract_display_text(agent_response: Dict[str, Any]) -> str:
@@ -700,3 +718,119 @@ async def test_chat_endpoint(
         )
         print(f"\n{'='*80}\nTEST CHAT ENDPOINT ERROR:\n{'='*80}\n{error_traceback}\n{'='*80}\n")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+# ============================================================================
+# PUBLIC ESCALATION ENDPOINT (for widget users)
+# ============================================================================
+
+@router.post(
+    "/{tenant_id}/session/{session_id}/escalate",
+    response_model=PublicEscalationResponse,
+    status_code=200
+)
+async def public_escalate_session(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    session_id: str = Path(..., description="Session UUID"),
+    request: PublicEscalationRequest = Body(...),
+    db: Session = Depends(get_db),
+) -> PublicEscalationResponse:
+    """
+    Public endpoint for widget users to escalate their chat session.
+
+    This endpoint does NOT require admin authentication - it's for end users
+    to request human support through the chat widget.
+
+    Args:
+        tenant_id: Tenant UUID
+        session_id: Session UUID (must match request body)
+        request: PublicEscalationRequest with session_id and reason
+        db: Database session
+
+    Returns:
+        PublicEscalationResponse with escalation status
+
+    Raises:
+        HTTPException: If session not found or validation fails
+    """
+    try:
+        # Validate tenant exists
+        tenant = db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        # Validate session_id matches path and body
+        if request.session_id != session_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Session ID in path must match session ID in request body"
+            )
+
+        # Validate session exists and belongs to tenant
+        session = db.query(ChatSession).filter(
+            and_(
+                ChatSession.session_id == session_id,
+                ChatSession.tenant_id == tenant_id
+            )
+        ).first()
+
+        if not session:
+            raise HTTPException(
+                status_code=404,
+                detail="Session not found or does not belong to this tenant"
+            )
+
+        # Escalate the session using escalation service
+        escalation_service = get_escalation_service()
+        result = escalation_service.escalate_session(
+            db=db,
+            session_id=session_id,
+            tenant_id=tenant_id,
+            reason=request.reason,
+            auto_detected=False,  # Manual escalation from user
+            keywords=None
+        )
+
+        if not result["success"]:
+            # If already escalated, return current status instead of error
+            if "already escalated" in result.get("error", "").lower():
+                return PublicEscalationResponse(
+                    success=True,
+                    session_id=session_id,
+                    escalation_status=session.escalation_status,
+                    message=f"Session already escalated with status: {session.escalation_status}"
+                )
+
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Failed to escalate session")
+            )
+
+        logger.info(
+            "public_escalation_created",
+            tenant_id=tenant_id,
+            session_id=session_id,
+            user_id=str(session.user_id) if session.user_id else None,
+            reason=request.reason
+        )
+
+        return PublicEscalationResponse(
+            success=True,
+            session_id=session_id,
+            escalation_status="pending",
+            message="Your session has been escalated. A support agent will assist you shortly."
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "public_escalate_session_error",
+            tenant_id=tenant_id,
+            session_id=session_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to escalate session: {str(e)}"
+        )

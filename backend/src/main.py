@@ -209,7 +209,7 @@ app.include_router(sse.router, tags=["sse"])
 app.include_router(supporter.router, tags=["supporter"])
 
 # Admin endpoints (Phase 4 & Phase 8)
-from src.api.admin import agents, tools, tenants, knowledge, escalation, sessions as admin_sessions, widgets
+from src.api.admin import agents, tools, tenants, knowledge, escalation, sessions as admin_sessions, widgets, llm_models
 # Public widget endpoints
 from src.api import public_widgets
 
@@ -220,6 +220,7 @@ app.include_router(knowledge.router, tags=["admin-knowledge"])
 app.include_router(escalation.router, tags=["admin-escalations"])
 app.include_router(admin_sessions.router, tags=["admin-sessions"])
 app.include_router(widgets.router, tags=["admin-widgets"])
+app.include_router(llm_models.router, tags=["admin-llm-models"])
 app.include_router(public_widgets.router, tags=["public-widgets"])
 
 # Monitoring endpoints (will be added in Phase 11)

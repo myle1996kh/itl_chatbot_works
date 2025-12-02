@@ -15,6 +15,7 @@ from src.models.message import Message
 from src.models.session import ChatSession
 from src.models.tenant import Tenant
 from src.models.user import User
+from src.models.chat_user import ChatUser
 from src.schemas.supporter_chat import (
     SupporterChatRequest,
     SupporterChatResponse,
@@ -136,8 +137,12 @@ async def get_supporter_sessions(
             ChatSession.created_at,
             func.count(Message.message_id).label("message_count"),
             func.max(Message.created_at).label("last_message_at"),
+            ChatUser.email.label("user_email"),
+            ChatUser.username.label("user_name"),
         ).outerjoin(
             Message, ChatSession.session_id == Message.session_id
+        ).outerjoin(
+            ChatUser, ChatSession.user_id == ChatUser.user_id
         )
 
         # Filter: this tenant, assigned to supporter, not 'none' status
@@ -154,7 +159,11 @@ async def get_supporter_sessions(
             query = query.filter(ChatSession.escalation_status == status)
 
         # Group and order
-        query = query.group_by(ChatSession.session_id).order_by(
+        query = query.group_by(
+            ChatSession.session_id,
+            ChatUser.email,
+            ChatUser.username
+        ).order_by(
             ChatSession.escalation_assigned_at.desc()
         )
 
@@ -185,6 +194,8 @@ async def get_supporter_sessions(
                     "session_id": str(session.session_id),
                     "tenant_id": str(session.tenant_id),
                     "user_id": str(session.user_id),
+                    "user_email": session.user_email,
+                    "user_name": session.user_name,
                     "escalation_status": session.escalation_status,
                     "escalation_reason": session.escalation_reason,
                     "assigned_user_id": str(session.assigned_user_id),

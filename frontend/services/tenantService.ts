@@ -123,9 +123,188 @@ export async function getTenant(tenantId: string): Promise<TenantResponse | null
 }
 
 /**
+ * Create a new tenant
+ */
+export async function createTenant(data: { name: string; domain?: string }, token: string): Promise<TenantResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to create tenant: ${response.status}`);
+  }
+
+  clearTenantCache();
+  return await response.json();
+}
+
+/**
+ * Update an existing tenant
+ */
+export async function updateTenant(tenantId: string, data: { name?: string; domain?: string; status?: string }, token: string): Promise<TenantResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants/${tenantId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update tenant: ${response.status}`);
+  }
+
+  clearTenantCache();
+  return await response.json();
+}
+
+/**
+ * Delete a tenant
+ */
+export async function deleteTenant(tenantId: string, token: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants/${tenantId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to delete tenant: ${response.status}`);
+  }
+
+  clearTenantCache();
+}
+
+/**
  * Clear tenant cache (useful after tenant updates)
  */
 export function clearTenantCache(): void {
   localStorage.removeItem('tenants_cache');
   console.log('Tenant cache cleared');
+}
+
+// ============================================================================
+// FULL TENANT SETUP
+// ============================================================================
+
+export interface LLMConfigCreate {
+  provider: string;
+  model_name: string;
+  api_key: string;
+  rate_limit_rpm?: number;
+  rate_limit_tpm?: number;
+}
+
+export interface TenantFullCreateRequest {
+  name: string;
+  domain: string;
+  status?: string;
+  llm_config: LLMConfigCreate;
+  agent_ids?: string[];
+  tool_ids?: string[];
+}
+
+export interface TenantFullResponse {
+  tenant_id: string;
+  name: string;
+  domain: string;
+  status: string;
+  llm_config_id: string;
+  enabled_agents: number;
+  enabled_tools: number;
+  widget_key: string;
+  embed_code: string;
+  created_at: string;
+}
+
+/**
+ * Create a full tenant with LLM config and permissions
+ */
+export async function createTenantFull(data: TenantFullCreateRequest, token: string): Promise<TenantFullResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants/create-new`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to create tenant: ${response.status}`);
+  }
+
+  clearTenantCache();
+  return await response.json();
+}
+
+/**
+ * Get list of available LLM models
+ */
+export async function getLLMModels(token: string): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/llm-models`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch LLM models: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.models || [];
+}
+
+/**
+ * Get tenant permissions (enabled agents/tools)
+ */
+export async function getTenantPermissions(tenantId: string, token: string): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants/${tenantId}/permissions`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch tenant permissions: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Update tenant permissions
+ */
+export async function updateTenantPermissions(
+  tenantId: string,
+  data: { agent_permissions?: any[]; tool_permissions?: any[] },
+  token: string
+): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants/${tenantId}/permissions`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update tenant permissions: ${response.status}`);
+  }
+
+  return await response.json();
 }

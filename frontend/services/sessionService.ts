@@ -248,6 +248,7 @@ export async function getSessionDetailPublic(
 export async function getSupporterSessions(
   tenantId: string,
   supporterId: string,
+  status?: 'active' | 'waiting' | 'resolved',
   jwt?: string
 ): Promise<SessionSummary[]> {
   try {
@@ -263,8 +264,13 @@ export async function getSupporterSessions(
     }
     console.log('✅ JWT token found, fetching supporter sessions...');
 
+    const params = new URLSearchParams();
+    if (status) {
+      params.set('status', status);
+    }
+
     const response = await fetch(
-      `${base}/api/tenants/${tenantId}/supporters/${supporterId}/sessions`,
+      `${base}/api/tenants/${tenantId}/supporters/${supporterId}/sessions${params.toString() ? `?${params.toString()}` : ''}`,
       {
         method: 'GET',
         headers: {

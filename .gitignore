@@ -201,3 +201,9 @@ frontend/public/dist/
 *.pyd
 *.db
 *.sqlite
+
+# Sensitive token files
+token.txt
+NEW_TOKEN.txt
+**/NEW_TOKEN.txt
+frontend/build_log.txt

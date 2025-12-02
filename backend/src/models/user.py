@@ -9,7 +9,7 @@ from .base import Base
 
 
 class User(Base):
-    """User - represents staff, admin, and tenant users."""
+    """User - represents supporter, admin, and tenant users."""
 
     __tablename__ = "users"
     __table_args__ = (

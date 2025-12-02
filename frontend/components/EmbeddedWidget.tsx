@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Tenant, UserInfo, Message, SessionSummary } from '../types';
 import { sendMessage, getApiBaseUrl } from '../services/chatService';
-import { escalateSession, detectAutoEscalation } from '../services/escalationService';
+import { escalateSessionPublic } from '../services/escalationService';
 import { getUserSessions, getSessionDetailPublic } from '../services/sessionService';
 import { XMarkIcon, ClockIcon } from './icons';
 import MessageList from './shared/MessageList';
@@ -64,6 +64,13 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                             size: msg.attachments[0].size || 0
                         } : undefined
                     }));
+
+                    // Load escalation status from session detail
+                    if (sessionDetail.escalation_status && sessionDetail.escalation_status !== 'none') {
+                        setIsEscalated(true);
+                    } else {
+                        setIsEscalated(false);
+                    }
 
                     // If no messages, show welcome message
                     if (formattedMessages.length === 0) {
@@ -172,20 +179,25 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
             return;
         }
         try {
-            const autoDetection = await detectAutoEscalation(escalationReason);
-            await escalateSession(tenant.id, sessionId, escalationReason, autoDetection.should_escalate, autoDetection.detected_keywords);
-            setIsEscalated(true);
-            setShowEscalationDialog(false);
-            setMessages((prev) => [...prev, {
-                id: `system-${Date.now()}`,
-                text: `✋ Escalated. A supporter will help you shortly.`,
-                sender: 'ai',
-                timestamp: new Date().toISOString(),
-            }]);
-            setEscalationReason('');
+            // Use public endpoint - no admin auth required
+            const result = await escalateSessionPublic(tenant.id, sessionId, escalationReason);
+
+            if (result.success) {
+                setIsEscalated(true);
+                setShowEscalationDialog(false);
+                setMessages((prev) => [...prev, {
+                    id: `system-${Date.now()}`,
+                    text: result.message || '✋ Escalated. A supporter will help you shortly.',
+                    sender: 'ai',
+                    timestamp: new Date().toISOString(),
+                }]);
+                setEscalationReason('');
+            } else {
+                alert('Failed to escalate session');
+            }
         } catch (error) {
             console.error('Escalation error:', error);
-            alert('Failed to escalate');
+            alert(`Failed to escalate: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     };
 

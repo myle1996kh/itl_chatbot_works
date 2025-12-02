@@ -14,6 +14,7 @@ from src.schemas.admin import (
     ToolListResponse,
     MessageResponse,
 )
+from pydantic import BaseModel
 from src.middleware.auth import require_admin_role
 from src.utils.logging import get_logger
 from datetime import datetime
@@ -21,6 +22,43 @@ from datetime import datetime
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin-tools"])
+
+
+class BaseToolResponse(BaseModel):
+    base_tool_id: str
+    type: str
+    description: str
+    default_config_schema: dict
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/base-tools", response_model=List[BaseToolResponse])
+async def list_base_tools(
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> List[BaseToolResponse]:
+    """
+    List all available base tool templates.
+
+    Requires admin role in JWT.
+    """
+    try:
+        base_tools = db.query(BaseTool).all()
+        return [
+            BaseToolResponse(
+                base_tool_id=str(tool.base_tool_id),
+                type=tool.type,
+                description=tool.description,
+                default_config_schema=tool.default_config_schema or {}
+            )
+            for tool in base_tools
+        ]
+    except Exception as e:
+        logger.error("list_base_tools_error", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to list base tools: {str(e)}")
+
 
 
 @router.get("/tools", response_model=ToolListResponse)

@@ -122,7 +122,50 @@ export async function detectAutoEscalation(
 // ============================================================================
 
 /**
- * Escalate a chat session to require human support
+ * PUBLIC: Escalate a chat session (for widget users - no admin auth required)
+ *
+ * @param tenantId - UUID of the tenant
+ * @param sessionId - UUID of the session
+ * @param reason - Reason for escalation
+ * @returns Public escalation response
+ */
+export async function escalateSessionPublic(
+  tenantId: string,
+  sessionId: string,
+  reason: string
+): Promise<{success: boolean; session_id: string; escalation_status: string; message: string}> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/${tenantId}/session/${sessionId}/escalate`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          reason,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(
+        errorData.detail || `Failed to escalate session: ${response.status}`
+      );
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('escalateSessionPublic error:', error);
+    throw error;
+  }
+}
+
+/**
+ * ADMIN: Escalate a chat session to require human support (requires admin auth)
  *
  * @param tenantId - UUID of the tenant
  * @param sessionId - UUID of the session

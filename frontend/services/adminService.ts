@@ -483,7 +483,7 @@ export async function checkBackendHealth(): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE_URL}/health`, {
       method: 'GET',
-      timeout: 5000,
+      signal: AbortSignal.timeout(5000),
     });
     return response.ok;
   } catch (error) {

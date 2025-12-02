@@ -405,111 +405,15 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
                   whiteSpace: 'pre-wrap',
                 }}
               >
-                <Markdown
+                {/* <Markdown
                   remarkPlugins={[remarkGfm]}
                   components={{
-                    // Paragraphs - reduce spacing
-                    p: ({ node, children, ...props }) => {
-                      const text = String(children);
-
-                      // Check if it's a step (Bước/Step)
-                      const isStep = /^(Bước|Step)\s+\d+:/i.test(text);
-
-                      // Check if it's a path/source line
-                      const isPath = /^(Đường dẫn|Path|Source|Nguồn):/i.test(text);
-
-                      if (isStep) {
-                        return (
-                          <p
-                            className="mb-1 leading-snug pl-4 relative"
-                            style={{
-                              paddingLeft: '1.5rem',
-                              marginTop: '0.25rem',
-                            }}
-                            {...props}
-                          >
-                            <span className="absolute left-0 font-normal text-gray-700">
-                              •
-                            </span>
-                            {children}
-                          </p>
-                        );
-                      }
-
-                      if (isPath) {
-                        return (
-                          <p
-                            className="mb-1 leading-snug font-normal break-words"
-                            style={{
-                              marginTop: '0.25rem',
-                              wordBreak: 'break-word',
-                              overflowWrap: 'anywhere',
-                            }}
-                            {...props}
-                          >
-                            {children}
-                          </p>
-                        );
-                      }
-
-                      return (
-                        <p
-                          className="mb-1 leading-snug"
-                          style={{ marginTop: '0.25rem' }}
-                          {...props}
-                        >
-                          {children}
-                        </p>
-                      );
-                    },
-
-                    // Headings - make bold, remove color
-                    h1: ({ node, children, ...props }) => (
-                      <h1 className="font-bold text-base mb-1 mt-2 text-gray-900" {...props}>{children}</h1>
-                    ),
-                    h2: ({ node, children, ...props }) => (
-                      <h2 className="font-bold text-base mb-1 mt-2 text-gray-900" {...props}>{children}</h2>
-                    ),
-                    h3: ({ node, children, ...props }) => (
-                      <h3 className="font-bold text-sm mb-1 mt-2 text-gray-900" {...props}>{children}</h3>
-                    ),
-                    h4: ({ node, children, ...props }) => (
-                      <h4 className="font-bold text-sm mb-1 mt-1 text-gray-900" {...props}>{children}</h4>
-                    ),
-
-                    // Lists - reduce spacing
-                    ul: ({ node, children, ...props }) => (
-                      <ul className="mb-1 mt-1 pl-4 space-y-0" {...props}>{children}</ul>
-                    ),
-                    ol: ({ node, children, ...props }) => (
-                      <ol className="mb-1 mt-1 pl-4 space-y-0" {...props}>{children}</ol>
-                    ),
-                    li: ({ node, children, ...props }) => (
-                      <li className="mb-0.5 leading-snug" {...props}>{children}</li>
-                    ),
-
-                    // Links - remove blue color, keep underline
-                    a: ({ node, children, ...props }) => (
-                      <a className="text-gray-900 underline font-normal break-words" {...props}>{children}</a>
-                    ),
-
-                    // Strong/Bold - ensure it's visible
-                    strong: ({ node, children, ...props }) => (
-                      <strong className="font-bold text-gray-900" {...props}>{children}</strong>
-                    ),
-
-                    // Code blocks - reduce spacing
-                    code: ({ node, children, className, ...props }: any) => {
-                      const inline = !className?.includes('language-');
-                      if (inline) {
-                        return <code className="bg-gray-100 px-1 rounded text-xs" {...props}>{children}</code>;
-                      }
-                      return <code className="block bg-gray-100 p-2 rounded text-xs mb-1 mt-1" {...props}>{children}</code>;
-                    },
+                    // ... components ...
                   }}
                 >
                   {msg.text}
-                </Markdown>
+                </Markdown> */}
+                <div className="whitespace-pre-wrap">{msg.text}</div>
               </div>
             </div>
             {msg.sender === 'user' && <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center"><UserCircleIcon className="h-6 w-6 text-gray-600" /></div>}
