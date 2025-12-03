@@ -794,11 +794,19 @@ async def public_escalate_session(
         if not result["success"]:
             # If already escalated, return current status instead of error
             if "already escalated" in result.get("error", "").lower():
+                # Vietnamese message based on current status
+                status_messages = {
+                    "pending": "Yêu cầu hỗ trợ đang chờ xử lý",
+                    "assigned": "Đã có nhân viên được phân công hỗ trợ",
+                    "resolved": "Yêu cầu hỗ trợ đã được giải quyết"
+                }
+                status_msg = status_messages.get(session.escalation_status, "Yêu cầu hỗ trợ đang được xử lý")
+
                 return PublicEscalationResponse(
                     success=True,
                     session_id=session_id,
                     escalation_status=session.escalation_status,
-                    message=f"Session already escalated with status: {session.escalation_status}"
+                    message=status_msg
                 )
 
             raise HTTPException(
@@ -806,19 +814,32 @@ async def public_escalate_session(
                 detail=result.get("error", "Failed to escalate session")
             )
 
+        # Determine message based on auto-assign result
+        auto_assigned = result.get("auto_assigned", False)
+        assigned_user_name = result.get("assigned_user_name")
+        escalation_status = result.get("escalation_status", "pending")
+
+        if auto_assigned and assigned_user_name:
+            message = f"Đã kết nối với nhân viên hỗ trợ {assigned_user_name}"
+        else:
+            message = "Yêu cầu đã được gửi, nhân viên sẽ hỗ trợ sớm nhất"
+
         logger.info(
             "public_escalation_created",
             tenant_id=tenant_id,
             session_id=session_id,
             user_id=str(session.user_id) if session.user_id else None,
-            reason=request.reason
+            reason=request.reason,
+            auto_assigned=auto_assigned,
+            assigned_user_id=result.get("assigned_user_id"),
+            escalation_status=escalation_status
         )
 
         return PublicEscalationResponse(
             success=True,
             session_id=session_id,
-            escalation_status="pending",
-            message="Your session has been escalated. A support agent will assist you shortly."
+            escalation_status=escalation_status,
+            message=message
         )
 
     except HTTPException:

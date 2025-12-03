@@ -20,7 +20,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     attachedFile,
     onFileAttach,
     primaryColor,
-    placeholder = 'Ask a question...',
+    placeholder = 'Đặt câu hỏi...',
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 

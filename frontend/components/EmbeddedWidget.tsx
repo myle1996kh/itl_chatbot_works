@@ -162,7 +162,7 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                         // Add a system message about resolution
                         setMessages(prev => [...prev, {
                             id: `system-${Date.now()}`,
-                            text: '✅ Your request has been resolved by a supporter. You can escalate again if needed.',
+                            text: '✅ Yêu cầu của bạn đã được giải quyết bởi nhân viên hỗ trợ. Bạn có thể yêu cầu hỗ trợ lại nếu cần.',
                             sender: 'ai',
                             timestamp: new Date().toISOString(),
                         }]);
@@ -236,17 +236,17 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                 setShowEscalationDialog(false);
                 setMessages((prev) => [...prev, {
                     id: `system-${Date.now()}`,
-                    text: result.message || '✋ Escalated. A supporter will help you shortly.',
+                    text: result.message || '✋ Đã yêu cầu hỗ trợ. Nhân viên sẽ hỗ trợ bạn trong giây lát.',
                     sender: 'ai',
                     timestamp: new Date().toISOString(),
                 }]);
                 setEscalationReason('');
             } else {
-                alert('Failed to escalate session');
+                alert('Không thể gửi yêu cầu hỗ trợ');
             }
         } catch (error) {
             console.error('Escalation error:', error);
-            alert(`Failed to escalate: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            alert(`Không thể gửi yêu cầu hỗ trợ: ${error instanceof Error ? error.message : 'Lỗi không xác định'}`);
         }
     };
 
@@ -289,7 +289,7 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                                 s.session_id === session.session_id
                                     ? {
                                         ...s,
-                                        lastUserMessage: lastUserMsg?.content || lastMessage?.content || "No user messages",
+                                        lastUserMessage: lastUserMsg?.content || lastMessage?.content || "Chưa có tin nhắn",
                                         last_message: lastMessage?.content || s.last_message
                                     }
                                     : s
@@ -305,7 +305,7 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
             historyCacheRef.current = { sessions: hydratedSessions, fetchedAt: now };
         } catch (e) {
             console.error(e);
-            setHistoryError('Unable to load history right now.');
+            setHistoryError('Không thể tải lịch sử lúc này.');
         } finally {
             setIsLoadingHistory(false);
         }
@@ -350,18 +350,18 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                 <div>
                     <h2 className="font-bold text-lg">{tenant.theme.headerText}</h2>
                     <p className="text-xs opacity-90">
-                        {userInfo.username ? `Hi, ${userInfo.username}!` : 'Chat with us'}
-                        {isEscalated && <span className="ml-2 inline-block px-2 py-0.5 bg-orange-400 text-white text-xs rounded-full">Escalated</span>}
+                        {userInfo.username ? `Xin chào, ${userInfo.username}!` : 'Trò chuyện với chúng tôi'}
+                        {isEscalated && <span className="ml-2 inline-block px-2 py-0.5 bg-orange-400 text-white text-xs rounded-full">Đã yêu cầu hỗ trợ</span>}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={toggleHistory} className="hover:bg-white/20 p-1 rounded-full" title="History">
+                    <button onClick={toggleHistory} className="hover:bg-white/20 p-1 rounded-full" title="Lịch sử">
                         <ClockIcon className="h-5 w-5" />
                     </button>
                     {!isEscalated && (
-                        <button onClick={() => setShowEscalationDialog(true)} className="text-xs font-semibold bg-orange-500 hover:bg-orange-600 px-2 py-1 rounded">Escalate</button>
+                        <button onClick={() => setShowEscalationDialog(true)} className="text-xs font-semibold bg-orange-500 hover:bg-orange-600 px-2 py-1 rounded">Yêu cầu hỗ trợ</button>
                     )}
-                    <button onClick={onEndSession} className="text-xs font-semibold bg-white/20 hover:bg-white/30 px-2 py-1 rounded">End</button>
+                    <button onClick={onEndSession} className="text-xs font-semibold bg-white/20 hover:bg-white/30 px-2 py-1 rounded">Kết thúc</button>
                     <button onClick={onClose} className="hover:bg-white/20 p-1 rounded-full"><XMarkIcon className="h-6 w-6" /></button>
                 </div>
             </header>
@@ -372,21 +372,21 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                     ref={historyRef}
                     className="absolute top-16 right-2 w-64 bg-white shadow-xl rounded-lg border border-gray-200 z-30 max-h-80 overflow-y-auto">
                     <div className="p-2 border-b bg-gray-50 flex items-center justify-between text-xs text-gray-500">
-                        <span className="font-semibold">Previous Sessions</span>
+                        <span className="font-semibold">Lịch sử trò chuyện</span>
                         <button
                             onClick={() => loadHistory(true)}
                             disabled={isLoadingHistory}
                             className="text-blue-600 hover:text-blue-800 disabled:text-gray-300"
                         >
-                            Refresh
+                            Làm mới
                         </button>
                     </div>
                     {isLoadingHistory ? (
-                        <div className="p-4 text-center text-gray-400 text-xs">Loading...</div>
+                        <div className="p-4 text-center text-gray-400 text-xs">Đang tải...</div>
                     ) : historyError ? (
                         <div className="p-4 text-center text-red-500 text-xs">{historyError}</div>
                     ) : sessionList.length === 0 ? (
-                        <div className="p-4 text-center text-gray-400 text-xs">No previous sessions</div>
+                        <div className="p-4 text-center text-gray-400 text-xs">Chưa có lịch sử</div>
                     ) : (
                         <ul>
                             {sessionList.map(session => (
@@ -399,13 +399,13 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                                             <div className="text-xs font-medium text-gray-700 flex justify-between">
                                                 <span>{new Date(session.created_at).toLocaleString()}</span>
                                                 {session.escalation_status && session.escalation_status !== 'none' && (
-                                                    <span className="text-orange-500 ml-2">Escalated</span>
+                                                    <span className="text-orange-500 ml-2">Đã yêu cầu hỗ trợ</span>
                                                 )}
                                             </div>
                                             <div className="text-xs text-gray-500 truncate mt-1">
                                                 {(session.lastUserMessage && session.lastUserMessage !== "No user messages")
                                                     ? session.lastUserMessage
-                                                    : (session.last_message || "No messages")}
+                                                    : (session.last_message || "Chưa có tin nhắn")}
                                             </div>
                                         </button>
                                         <button
@@ -414,7 +414,7 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                                                 deleteSession(session.session_id);
                                             }}
                                             className="p-2 text-gray-400 hover:text-red-500"
-                                            title="Delete session"
+                                            title="Xóa phiên"
                                         >
                                             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -468,7 +468,7 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                 attachedFile={attachedFile}
                 onFileAttach={setAttachedFile}
                 primaryColor={primaryColor}
-                placeholder={selectedAgent ? "Type your message..." : "Chọn chủ đề trước..."}
+                placeholder={selectedAgent ? "Nhập tin nhắn..." : "Chọn chủ đề trước..."}
             />
 
             <EscalationDialog

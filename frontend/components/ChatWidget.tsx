@@ -155,12 +155,12 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
             if (previousStatus !== 'resolved' && previousStatus !== 'none') {
               setMessages(prev => {
                 const hasResolutionMessage = prev.some(m =>
-                  m.text.includes('✅ Your request has been resolved')
+                  m.text.includes('✅ Yêu cầu của bạn đã được giải quyết')
                 );
                 if (!hasResolutionMessage) {
                   return [...prev, {
                     id: `system-resolved-${Date.now()}`,
-                    text: '✅ Your request has been resolved by a supporter. You can escalate again if needed.',
+                    text: '✅ Yêu cầu của bạn đã được giải quyết bởi nhân viên hỗ trợ. Bạn có thể yêu cầu hỗ trợ lại nếu cần.',
                     sender: 'ai',
                     timestamp: new Date().toISOString(),
                   }];
@@ -390,7 +390,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
       // Add escalation notification message
       const escalationMessage: Message = {
         id: `system-${Date.now()}`,
-        text: `✋ Your request has been escalated to a human supporter. Reason: "${escalationReason}". A supporter will be with you shortly.`,
+        text: `✋ Yêu cầu của bạn đã được chuyển đến nhân viên hỗ trợ. Lý do: "${escalationReason}". Nhân viên sẽ hỗ trợ bạn trong giây lát.`,
         sender: 'ai',
         timestamp: new Date().toISOString(),
       };
@@ -402,7 +402,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
       console.log('✅ Session escalated:', response);
     } catch (error) {
       console.error('❌ Escalation error:', error);
-      alert(`Failed to escalate session: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`Không thể gửi yêu cầu hỗ trợ: ${error instanceof Error ? error.message : 'Lỗi không xác định'}`);
     }
   };
 
@@ -422,8 +422,8 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
         <div>
           <h2 className="font-bold text-lg">{tenant.theme.headerText}</h2>
           <p className="text-xs opacity-90">
-            Topic: {currentTopic?.name}
-            {isEscalated && <span className="ml-2 inline-block px-2 py-0.5 bg-orange-400 text-white text-xs rounded-full">Escalated</span>}
+            Chủ đề: {currentTopic?.name}
+            {isEscalated && <span className="ml-2 inline-block px-2 py-0.5 bg-orange-400 text-white text-xs rounded-full">Đã yêu cầu hỗ trợ</span>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -431,12 +431,12 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
             <button
               onClick={() => setShowEscalationDialog(true)}
               className="text-xs font-semibold bg-orange-500 hover:bg-orange-600 px-2 py-1 rounded"
-              title="Request human support"
+              title="Yêu cầu hỗ trợ từ nhân viên"
             >
-              Escalate
+              Yêu cầu hỗ trợ
             </button>
           )}
-          <button onClick={() => { try { localStorage.removeItem(getActiveSessionKey()); } catch { }; onEndSession(); }} className="text-xs font-semibold bg-white/20 hover:bg-white/30 px-2 py-1 rounded">End Session</button>
+          <button onClick={() => { try { localStorage.removeItem(getActiveSessionKey()); } catch { }; onEndSession(); }} className="text-xs font-semibold bg-white/20 hover:bg-white/30 px-2 py-1 rounded">Kết thúc phiên</button>
           <button onClick={onClose} className="hover:bg-white/20 p-1 rounded-full"><XMarkIcon className="h-6 w-6" /></button>
         </div>
       </header>
@@ -535,7 +535,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder="Ask a question..."
+            placeholder="Đặt câu hỏi..."
             className="flex-1 w-full px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-1"
             disabled={isTyping}
           />
@@ -562,14 +562,14 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
       {showEscalationDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 rounded-lg">
           <div className="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold mb-4 text-gray-800">Request Human Support</h3>
+            <h3 className="text-lg font-bold mb-4 text-gray-800">Yêu cầu hỗ trợ từ nhân viên</h3>
             <p className="text-sm text-gray-600 mb-4">
-              Why do you need human support? Please describe the issue or your reason for escalation.
+              Vì sao bạn cần hỗ trợ từ nhân viên? Vui lòng mô tả vấn đề hoặc lý do yêu cầu hỗ trợ.
             </p>
             <textarea
               value={escalationReason}
               onChange={(e) => setEscalationReason(e.target.value)}
-              placeholder="Describe your issue or reason for escalation..."
+              placeholder="Mô tả vấn đề hoặc lý do cần hỗ trợ..."
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 mb-4 resize-none"
               rows={4}
             />
@@ -581,13 +581,13 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
                 }}
                 className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"
               >
-                Cancel
+                Hủy
               </button>
               <button
                 onClick={handleEscalationSubmit}
                 className="px-4 py-2 text-white bg-orange-500 hover:bg-orange-600 rounded-lg font-medium"
               >
-                Escalate
+                Gửi yêu cầu
               </button>
             </div>
           </div>

@@ -11,7 +11,8 @@
       "Bash(python -m py_compile:*)",
       "Bash(ver:*)",
       "Bash(cmd /c echo Testing CMD)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []

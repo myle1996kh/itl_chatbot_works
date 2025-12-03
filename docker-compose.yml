@@ -1,0 +1,203 @@
+# ============================================================================
+# Docker Compose Configuration for ITL AgentHub (Production)
+# ============================================================================
+# This file orchestrates all services required for the chatbot application:
+# - PostgreSQL with pgvector extension
+# - Redis for caching and rate limiting
+# - Backend (FastAPI)
+# - Frontend (React/Nginx)
+# - Optional admin tools (pgAdmin, Redis Commander)
+
+version: '3.8'
+
+# ============================================================================
+# Services
+# ============================================================================
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL Database with pgvector extension
+  # --------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: itl-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-chatbot_itl}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Postgres123!}
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    volumes:
+      # Persist database data
+      - postgres_data:/var/lib/postgresql/data
+      # Custom initialization scripts (if needed)
+      - ./backend/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-chatbot_itl}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - itl-network
+
+  # --------------------------------------------------------------------------
+  # Redis Cache and Rate Limiter
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: itl-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      # Persist Redis data with AOF (Append-Only File)
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - itl-network
+
+  # --------------------------------------------------------------------------
+  # Backend (FastAPI Application)
+  # --------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: itl-backend
+    restart: unless-stopped
+    environment:
+      # Database connection
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-Postgres123!}@postgres:5432/${DB_NAME:-chatbot_itl}
+      
+      # Redis connection
+      REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379
+      
+      # Security
+      FERNET_KEY: ${FERNET_KEY}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      DISABLE_AUTH: ${DISABLE_AUTH:-false}
+      
+      # Application settings
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      
+      # CORS - Update with your frontend domain
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:80}
+      
+      # Rate limiting
+      DEFAULT_RATE_LIMIT_RPM: ${DEFAULT_RATE_LIMIT_RPM:-60}
+      DEFAULT_RATE_LIMIT_TPM: ${DEFAULT_RATE_LIMIT_TPM:-10000}
+      
+      # LLM Providers (optional)
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      PROTONX_API_KEY: ${PROTONX_API_KEY:-}
+      
+      # Database pool settings
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      
+      # Cache settings
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-3600}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - itl-network
+    volumes:
+      # Mount logs directory (optional)
+      - ./backend/logs:/app/logs
+
+  # --------------------------------------------------------------------------
+  # Frontend (React/Nginx)
+  # --------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: itl-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - itl-network
+
+  # --------------------------------------------------------------------------
+  # pgAdmin (Database Management UI) - Optional
+  # --------------------------------------------------------------------------
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: itl-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@itl.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      - postgres
+    networks:
+      - itl-network
+    profiles:
+      - admin
+
+  # --------------------------------------------------------------------------
+  # Redis Commander (Redis Management UI) - Optional
+  # --------------------------------------------------------------------------
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: itl-redis-commander
+    restart: unless-stopped
+    environment:
+      REDIS_HOSTS: local:redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    ports:
+      - "${REDIS_COMMANDER_PORT:-8081}:8081"
+    depends_on:
+      - redis
+    networks:
+      - itl-network
+    profiles:
+      - admin
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  itl-network:
+    driver: bridge
+    name: itl-chatbot-network
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  postgres_data:
+    name: itl-postgres-data
+  redis_data:
+    name: itl-redis-data

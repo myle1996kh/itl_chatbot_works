@@ -23,7 +23,14 @@ const ChatManagementPage: React.FC = () => {
     const [filterTenantId, setFilterTenantId] = useState<string>('');
     const [currentUser, setCurrentUser] = useState<Supporter | null>(null); // null means Admin view
 
-    // Helpers
+    // Message selection for enrichment
+    const [selectedMessages, setSelectedMessages] = useState<Record<string, Message>>({});
+    const [showEnrichModal, setShowEnrichModal] = useState(false);
+    const [enriching, setEnriching] = useState(false);
+
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const [sessionsPerPage] = useState(100);
     const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
     const pickPreferredTenantId = (list: Tenant[]): string => {
         const byId = list.find(t => t.id === '3105b788-b5ff-4d56-88a9-532af4ab4ded');
@@ -251,6 +258,81 @@ const ChatManagementPage: React.FC = () => {
         return sessions;
     }, [allSessions, filterTenantId, currentUser]);
 
+    const handleMessageSelection = (msg: Message) => {
+        setSelectedMessages(prev => {
+            const newSelection = { ...prev };
+            if (newSelection[msg.id]) {
+                delete newSelection[msg.id];
+            } else {
+                newSelection[msg.id] = msg;
+            }
+            return newSelection;
+        });
+    };
+
+    const handleEnrichment = async () => {
+        if (!selectedSession || enriching) return;
+
+        try {
+            setEnriching(true);
+
+            const messagesToEnrich = Object.values(selectedMessages);
+            const conversationText = messagesToEnrich
+                .map(m => {
+                    const role = m.sender === 'user' ? 'User' : m.sender === 'supporter' ? 'Supporter' : 'Agent';
+                    return `${role}: ${m.text}`;
+                })
+                .join('\n\n');
+
+            const documentName = `Chat History - ${selectedSession.userEmail || selectedSession.userName || 'User'} - ${new Date().toLocaleString()}`;
+
+            // Create text file blob for upload-document endpoint
+            const blob = new Blob([conversationText], { type: 'text/plain' });
+            const formData = new FormData();
+            formData.append('file', blob, `${selectedSession.id}-enrichment.txt`);
+            formData.append('document_name', documentName);
+
+            console.log('📚 Enriching knowledge base from chat history:', {
+                session_id: selectedSession.id,
+                messages_count: messagesToEnrich.length,
+                tenant_id: selectedSession.tenantId,
+            });
+
+            const baseUrl = getApiBaseUrl();
+            const response = await fetch(
+                `${baseUrl}/api/admin/tenants/${selectedSession.tenantId}/knowledge/upload-document`,
+                {
+                    method: 'POST',
+                    headers: {
+                        Authorization: jwtToken ? `Bearer ${jwtToken}` : '',
+                    },
+                    body: formData,
+                }
+            );
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: Failed to enrich knowledge base`);
+            }
+
+            const result = await response.json();
+            console.log('✅ Chat history enriched successfully:', {
+                document_name: result.document_name,
+                chunk_count: result.chunk_count,
+                document_ids: result.document_ids,
+            });
+
+            alert(`✅ Knowledge base enriched!\n\n${result.chunk_count} chunks created from ${messagesToEnrich.length} messages`);
+            setSelectedMessages({});
+            setShowEnrichModal(false);
+        } catch (e: any) {
+            console.error('❌ Enrichment failed:', e);
+            alert(`Failed to enrich knowledge base: ${e.message || 'Unknown error'}`);
+        } finally {
+            setEnriching(false);
+        }
+    };
+
     const assignSupporter = async (sessionId: string, supporterId: string) => {
         if (!jwtToken) return;
 
@@ -303,7 +385,10 @@ const ChatManagementPage: React.FC = () => {
 
                         <select
                             value={filterTenantId}
-                            onChange={e => setFilterTenantId(e.target.value)}
+                            onChange={e => {
+                                setFilterTenantId(e.target.value);
+                                setCurrentPage(1); // Reset to page 1 when changing tenant
+                            }}
                             className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                         >
                             {backendTenants.length === 0 ? (
@@ -316,6 +401,29 @@ const ChatManagementPage: React.FC = () => {
                         </select>
                     </div>
 
+                    {/* Pagination Controls */}
+                    {filteredSessions.length > sessionsPerPage && (
+                        <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between text-sm">
+                            <button
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                                className="px-3 py-1 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                ← Previous
+                            </button>
+                            <span className="text-gray-600">
+                                Page {currentPage} of {Math.ceil(filteredSessions.length / sessionsPerPage)}
+                            </span>
+                            <button
+                                onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredSessions.length / sessionsPerPage), p + 1))}
+                                disabled={currentPage >= Math.ceil(filteredSessions.length / sessionsPerPage)}
+                                className="px-3 py-1 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Next →
+                            </button>
+                        </div>
+                    )}
+
                     <div className="flex-1 overflow-y-auto">
                         {filteredSessions.length === 0 ? (
                             <div className="p-8 text-center text-gray-500">
@@ -324,7 +432,9 @@ const ChatManagementPage: React.FC = () => {
                             </div>
                         ) : (
                             <ul className="divide-y divide-gray-200">
-                                {filteredSessions.map(session => (
+                                {filteredSessions
+                                    .slice((currentPage - 1) * sessionsPerPage, currentPage * sessionsPerPage)
+                                    .map(session => (
                                     <li
                                         key={session.id}
                                         onClick={() => setSelectedSession(session)}
@@ -352,9 +462,9 @@ const ChatManagementPage: React.FC = () => {
                                         </div>
                                         <div className="flex justify-between items-center">
                                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${session.escalationStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                                                    session.escalationStatus === 'assigned' ? 'bg-blue-100 text-blue-800' :
-                                                        session.escalationStatus === 'resolved' ? 'bg-green-100 text-green-800' :
-                                                            'bg-gray-100 text-gray-800'
+                                                session.escalationStatus === 'assigned' ? 'bg-blue-100 text-blue-800' :
+                                                    session.escalationStatus === 'resolved' ? 'bg-green-100 text-green-800' :
+                                                        'bg-gray-100 text-gray-800'
                                                 }`}>
                                                 {session.escalationStatus || 'active'}
                                             </span>
@@ -386,6 +496,30 @@ const ChatManagementPage: React.FC = () => {
                                     </p>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                    {/* Enrich Knowledge Base Button */}
+                                    {Object.keys(selectedMessages).length > 0 && (
+                                        <button
+                                            onClick={() => setShowEnrichModal(true)}
+                                            disabled={enriching}
+                                            className="px-3 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            title={`Enrich knowledge base with ${Object.keys(selectedMessages).length} selected messages`}
+                                        >
+                                            {enriching ? (
+                                                <>
+                                                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" fill="none" viewBox="0 0 24 24">
+                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    Enriching...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    📚 Enrich ({Object.keys(selectedMessages).length})
+                                                </>
+                                            )}
+                                        </button>
+                                    )}
+
                                     <select
                                         value={selectedSession.assignedSupporterId || ''}
                                         onChange={(e) => assignSupporter(selectedSession.id, e.target.value)}
@@ -403,15 +537,26 @@ const ChatManagementPage: React.FC = () => {
                                 {selectedSession.messages?.map((msg) => (
                                     <div
                                         key={msg.id}
-                                        className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                                        className={`flex items-start gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                                     >
+                                        {/* Checkbox for enrichment - appears on left for AI/supporter, right for user */}
+                                        {msg.sender !== 'user' && (
+                                            <input
+                                                type="checkbox"
+                                                checked={!!selectedMessages[msg.id]}
+                                                onChange={() => handleMessageSelection(msg)}
+                                                className="mt-2 h-4 w-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer"
+                                                title="Select for knowledge base enrichment"
+                                            />
+                                        )}
+
                                         <div
                                             className={`max-w-[70%] rounded-lg px-4 py-2 shadow-sm ${msg.sender === 'user'
-                                                    ? 'bg-indigo-600 text-white'
-                                                    : msg.sender === 'supporter'
-                                                        ? 'bg-green-100 text-gray-900 border border-green-200'
-                                                        : 'bg-white text-gray-900 border border-gray-200'
-                                                }`}
+                                                ? 'bg-indigo-600 text-white'
+                                                : msg.sender === 'supporter'
+                                                    ? 'bg-green-100 text-gray-900 border border-green-200'
+                                                    : 'bg-white text-gray-900 border border-gray-200'
+                                                } ${selectedMessages[msg.id] ? 'ring-2 ring-indigo-500' : ''}`}
                                         >
                                             <div className="text-xs opacity-75 mb-1 flex justify-between gap-4">
                                                 <span className="capitalize font-medium">
@@ -421,6 +566,17 @@ const ChatManagementPage: React.FC = () => {
                                             </div>
                                             <div className="whitespace-pre-wrap text-sm">{msg.text}</div>
                                         </div>
+
+                                        {/* Checkbox for user messages - appears on right */}
+                                        {msg.sender === 'user' && (
+                                            <input
+                                                type="checkbox"
+                                                checked={!!selectedMessages[msg.id]}
+                                                onChange={() => handleMessageSelection(msg)}
+                                                className="mt-2 h-4 w-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer"
+                                                title="Select for knowledge base enrichment"
+                                            />
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -435,6 +591,49 @@ const ChatManagementPage: React.FC = () => {
                     )}
                 </div>
             </div>
+
+            {/* Enrichment Confirmation Modal */}
+            {showEnrichModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                        <h3 className="text-lg font-bold mb-4 text-gray-900">
+                            Enrich Knowledge Base
+                        </h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                            You are about to add <span className="font-semibold text-indigo-600">{Object.keys(selectedMessages).length} messages</span> to the knowledge base for tenant <span className="font-semibold">{backendTenants.find(t => t.id === filterTenantId)?.name || 'Unknown'}</span>.
+                        </p>
+                        <p className="text-sm text-gray-600 mb-6">
+                            This will create a new document with the selected conversation history, which can be used to improve AI responses.
+                        </p>
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                onClick={() => setShowEnrichModal(false)}
+                                disabled={enriching}
+                                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleEnrichment}
+                                disabled={enriching}
+                                className="px-4 py-2 text-white bg-green-600 hover:bg-green-700 rounded-lg font-medium disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {enriching ? (
+                                    <>
+                                        <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Enriching...
+                                    </>
+                                ) : (
+                                    '📚 Enrich Knowledge Base'
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </AdminLayout>
     );
 };

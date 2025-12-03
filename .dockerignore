@@ -1,84 +1,93 @@
-# Add this to .dockerignore to exclude unnecessary files from Docker build
-__pycache__/
+# ============================================================================
+# .dockerignore - Exclude files from Docker build context
+# ============================================================================
+# This file reduces build time and image size by excluding unnecessary files
+
+# Version Control
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
 *.py[cod]
 *$py.class
 *.so
 .Python
-*.egg-info/
-dist/
-build/
-*.egg
-
-# Virtual environments
-.venv/
+.venv
 venv/
 ENV/
 env/
+.pytest_cache
+*.egg-info
+dist/
+build/
 
 # IDE
-.vscode/
-.idea/
+.vscode
+.idea
 *.swp
 *.swo
 *~
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# Environment files (should be mounted or passed as env vars)
-.env
-.env.*
-
-# Git
-.git/
-.gitignore
-.gitattributes
-
-# Documentation
-*.md
-docs/
-
-# Notebooks
-*.ipynb
-.ipynb_checkpoints/
 
 # Logs
 *.log
 logs/
 
+# Environment files (security - never include in image)
+.env
+.env.*
+!.env.example
+
+# Documentation (exclude all project docs and guides)
+*.md
+!README.md
+docs/
+Documentation/
+backend/Guides/
+ARCHITECTURE_DIAGRAMS.md
+DEPLOYMENT.md
+DOCKER_*.md
+CHANGELOG_FIXES.md
+
+# Tests (exclude Bruno tests and pytest files)
+tests/
+backend/tests/
+*.test.js
+*.spec.js
+*.bru
+
+# Node modules (will be installed during build)
+node_modules/
+
+# Frontend build artifacts (will be created during build)
+frontend/dist/
+frontend/build/
+
 # Database
 *.db
 *.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Temporary files
 tmp/
 temp/
 *.tmp
 
-# OS files
-.DS_Store
-Thumbs.db
+# Coverage reports
+.coverage
+htmlcov/
+coverage/
 
-# Docker files (don't copy into image)
-Dockerfile
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints
+
+# Docker
 docker-compose*.yml
+Dockerfile*
 .dockerignore
-
-# Checklist and review files
-Checklist_production/
-PRE_PRODUCTION_CHECKLIST.md
-SECURITY_AUDIT_REPORT.md
-
-# Test files (not needed in production)
-tests/
-test_*.py
-*_test.py
-
-# Development scripts
-run_tests.py
-check_code_quality.py
-generate_jwt_keys.py
-update_env_with_jwt.py

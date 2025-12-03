@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import AdminLayout from '../../components/AdminLayout';
 import { getTenants } from '../../services/tenantService';
+import { listUsers } from '../../services/adminService';
+import { getApiBaseUrl, getJWTToken } from '../../services/authService';
 
 const AdminOverviewPage: React.FC = () => {
     const [stats, setStats] = useState({
         activeTenants: 0,
         totalUsers: 0,
-        activeSessions: 0,
         pendingEscalations: 0,
     });
     const [loading, setLoading] = useState(true);
@@ -19,15 +20,47 @@ const AdminOverviewPage: React.FC = () => {
     const loadStats = async () => {
         try {
             setLoading(true);
-            // Fetch real tenants count
+            const jwtToken = getJWTToken();
+
+            // 1. Fetch real tenants count
             const tenants = await getTenants();
 
-            // Mock other stats for now (would need specific admin stats endpoints)
+            // 2. Fetch real users count (all roles)
+            let usersCount = 0;
+            try {
+                const users = await listUsers(jwtToken, { limit: 10000 });
+                usersCount = users?.length || 0;
+            } catch (err) {
+                console.warn('Failed to load users count:', err);
+            }
+
+            // 3. Fetch pending escalations count across all tenants
+            let pendingCount = 0;
+            try {
+                const baseUrl = getApiBaseUrl();
+                for (const tenant of tenants) {
+                    const response = await fetch(
+                        `${baseUrl}/api/admin/tenants/${tenant.id}/escalations?status=pending`,
+                        {
+                            headers: {
+                                'Authorization': `Bearer ${jwtToken}`,
+                                'Content-Type': 'application/json',
+                            },
+                        }
+                    );
+                    if (response.ok) {
+                        const data = await response.json();
+                        pendingCount += data.pending_count || 0;
+                    }
+                }
+            } catch (err) {
+                console.warn('Failed to load pending escalations:', err);
+            }
+
             setStats({
                 activeTenants: tenants.length,
-                totalUsers: 156, // Mock
-                activeSessions: 42, // Mock
-                pendingEscalations: 5, // Mock
+                totalUsers: usersCount,
+                pendingEscalations: pendingCount,
             });
         } catch (error) {
             console.error('Failed to load admin stats:', error);
@@ -39,7 +72,6 @@ const AdminOverviewPage: React.FC = () => {
     const statCards = [
         { label: 'Active Tenants', value: stats.activeTenants, color: 'bg-blue-500', icon: '🏢' },
         { label: 'Total Users', value: stats.totalUsers, color: 'bg-green-500', icon: '👥' },
-        { label: 'Active Sessions', value: stats.activeSessions, color: 'bg-indigo-500', icon: '💬' },
         { label: 'Pending Escalations', value: stats.pendingEscalations, color: 'bg-orange-500', icon: '⚠️' },
     ];
 
@@ -55,8 +87,8 @@ const AdminOverviewPage: React.FC = () => {
     return (
         <AdminLayout>
             <div className="space-y-6">
-                {/* Stats Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {/* Stats Grid - Now with 3 cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {statCards.map((stat, index) => (
                         <div key={index} className="bg-white rounded-lg shadow-sm p-6 border border-gray-200 flex items-center">
                             <div className={`p-4 rounded-full ${stat.color} bg-opacity-10 mr-4`}>
@@ -84,65 +116,6 @@ const AdminOverviewPage: React.FC = () => {
                             <p className="text-sm text-gray-600 mt-1">{link.description}</p>
                         </Link>
                     ))}
-                </div>
-
-                {/* Recent Activity & System Health */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Recent Activity */}
-                    <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200">
-                        <div className="px-6 py-4 border-b border-gray-200">
-                            <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
-                        </div>
-                        <div className="p-6">
-                            <ul className="space-y-4">
-                                {[1, 2, 3].map((i) => (
-                                    <li key={i} className="flex items-start pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                                        <div className="flex-shrink-0 h-2 w-2 mt-2 rounded-full bg-indigo-500"></div>
-                                        <div className="ml-4">
-                                            <p className="text-sm font-medium text-gray-900">New tenant "Logistics Corp" registered</p>
-                                            <p className="text-xs text-gray-500">2 hours ago</p>
-                                        </div>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    </div>
-
-                    {/* System Health */}
-                    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-                        <div className="px-6 py-4 border-b border-gray-200">
-                            <h3 className="text-lg font-semibold text-gray-900">System Health</h3>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            <div>
-                                <div className="flex justify-between mb-1">
-                                    <span className="text-sm font-medium text-gray-700">API Latency</span>
-                                    <span className="text-sm font-medium text-green-600">45ms</span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-2">
-                                    <div className="bg-green-500 h-2 rounded-full" style={{ width: '15%' }}></div>
-                                </div>
-                            </div>
-                            <div>
-                                <div className="flex justify-between mb-1">
-                                    <span className="text-sm font-medium text-gray-700">Database Load</span>
-                                    <span className="text-sm font-medium text-yellow-600">62%</span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-2">
-                                    <div className="bg-yellow-500 h-2 rounded-full" style={{ width: '62%' }}></div>
-                                </div>
-                            </div>
-                            <div>
-                                <div className="flex justify-between mb-1">
-                                    <span className="text-sm font-medium text-gray-700">Storage Usage</span>
-                                    <span className="text-sm font-medium text-blue-600">28%</span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-2">
-                                    <div className="bg-blue-500 h-2 rounded-full" style={{ width: '28%' }}></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
         </AdminLayout>

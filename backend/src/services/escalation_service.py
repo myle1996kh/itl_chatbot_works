@@ -184,11 +184,70 @@ class EscalationService:
             db.add(session)
             db.commit()
 
+            # AUTO-ASSIGN: Try to find and assign available supporter
+            assigned_user_id = None
+            assigned_user_name = None
+            auto_assigned = False
+
+            try:
+                available_staff = self.find_available_staff(db, tenant_id)
+
+                if available_staff and len(available_staff) > 0:
+                    # Get the supporter with the least current sessions (first in sorted list)
+                    best_supporter = available_staff[0]
+
+                    # Auto-assign to this supporter
+                    assign_result = self.assign_user(
+                        db=db,
+                        session_id=session_id,
+                        tenant_id=tenant_id,
+                        user_id=str(best_supporter.user_id)
+                    )
+
+                    if assign_result["success"]:
+                        auto_assigned = True
+                        assigned_user_id = str(best_supporter.user_id)
+                        assigned_user_name = best_supporter.display_name or best_supporter.username
+
+                        logger.info(
+                            "session_auto_assigned",
+                            session_id=session_id,
+                            assigned_user_id=assigned_user_id,
+                            assigned_user_name=assigned_user_name,
+                            supporter_load=f"{assign_result.get('staff_current_sessions')}/{assign_result.get('staff_max_sessions')}"
+                        )
+                    else:
+                        logger.warning(
+                            "auto_assign_failed",
+                            session_id=session_id,
+                            reason=assign_result.get("error")
+                        )
+                else:
+                    logger.info(
+                        "no_available_staff",
+                        session_id=session_id,
+                        tenant_id=tenant_id,
+                        message="No supporters online - escalation remains pending"
+                    )
+            except Exception as assign_error:
+                logger.error(
+                    "auto_assign_error",
+                    session_id=session_id,
+                    error=str(assign_error)
+                )
+                # Don't fail the escalation if auto-assign fails
+                # Just leave it as pending
+
+            # Refresh session to get updated status after potential auto-assign
+            db.refresh(session)
+
             logger.info(
                 "session_escalated",
                 session_id=session_id,
                 tenant_id=tenant_id,
                 auto_detected=auto_detected,
+                auto_assigned=auto_assigned,
+                final_status=session.escalation_status,
                 reason=reason
             )
 
@@ -197,6 +256,9 @@ class EscalationService:
                 "session_id": session_id,
                 "escalation_status": session.escalation_status,
                 "escalation_requested_at": session.escalation_requested_at.isoformat(),
+                "auto_assigned": auto_assigned,
+                "assigned_user_id": assigned_user_id,
+                "assigned_user_name": assigned_user_name,
             }
 
         except Exception as e:
