@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { getCurrentUser, getApiBaseUrl } from '../services/authService';
 import { getSessionDetailPublic, sendSupporterMessage } from '../services/sessionService';
 import { resolveEscalation } from '../services/escalationService';
@@ -21,6 +21,7 @@ const categoryLabels: Record<Category, string> = {
 const ChatRoomPage: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const navigate = useNavigate();
+    const location = useLocation();
     const user = getCurrentUser();
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -96,11 +97,26 @@ const ChatRoomPage: React.FC = () => {
             setLoading(true);
             setError(null);
 
-            const detail = await getSessionDetailPublic(user.tenant_id, sessionId);
+            let detail = await getSessionDetailPublic(user.tenant_id, sessionId);
             console.log('Debug: Session detail from API', detail); // Debug log
             if (!detail) {
                 setError('Session not found');
                 return;
+            }
+
+            // Use location state to enhance the session info if available
+            if (location.state) {
+                const { user_name, user_email } = location.state as {
+                    user_name?: string,
+                    user_email?: string
+                };
+
+                // Enhance session data with navigation state if not available from API
+                detail = {
+                    ...detail,
+                    user_name: detail.user_name || user_name,
+                    user_email: detail.user_email || user_email
+                };
             }
 
             setSession(detail);
