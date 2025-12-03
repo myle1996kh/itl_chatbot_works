@@ -44,6 +44,14 @@ class LoginResponse(BaseModel):
     token: str = None
     status: str = "active"
 
+    @field_validator('user_id', 'tenant_id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        """Convert UUID objects to strings."""
+        if isinstance(v, uuid.UUID):
+            return str(v)
+        return v
+
     class Config:
         from_attributes = True
 
@@ -77,6 +85,14 @@ class UserResponse(BaseModel):
     tenant_id: str
     created_at: datetime
     last_login: Optional[datetime]
+
+    @field_validator('user_id', 'tenant_id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        """Convert UUID objects to strings."""
+        if isinstance(v, uuid.UUID):
+            return str(v)
+        return v
 
     class Config:
         from_attributes = True
@@ -458,13 +474,15 @@ def create_user(
         # Create new user
         new_user = User(
             user_id=uuid.uuid4(),
-            tenant_id=request.tenant_id,
+            tenant_id=uuid.UUID(request.tenant_id),  # Convert string to UUID
             email=request.email,
             username=request.username,
             password_hash=hash_password(request.password),
             role=request.role,
             display_name=request.display_name,
             status="active",
+            supporter_status="online",  # Set supporter status to online
+            max_concurrent_sessions=50,  # Set max concurrent sessions to 50
             created_by=uuid.UUID(admin_payload.get("sub")),
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow()
