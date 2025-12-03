@@ -157,7 +157,7 @@ async def get_session_details(
                 "message_id": str(msg.message_id),
                 "session_id": str(msg.session_id),
                 "sender_id": msg.sender_user_id,
-                "sender_type": msg.role,
+                "role": msg.role,
                 "content": msg.content,
                 "timestamp": msg.created_at.isoformat(),
                 "metadata": msg_metadata_dict,

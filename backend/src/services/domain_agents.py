@@ -323,7 +323,17 @@ For each tool:
                                     result_type=type(tool_result).__name__
                                 )
                                 
-                                tool_info["output"] = tool_result
+                                # Parse tool result if it's a JSON string
+                                # HTTP tools return JSON strings, but Pydantic expects dict
+                                if isinstance(tool_result, str):
+                                    try:
+                                        tool_result_parsed = json.loads(tool_result)
+                                        tool_info["output"] = tool_result_parsed
+                                    except json.JSONDecodeError:
+                                        # If not valid JSON, wrap in dict
+                                        tool_info["output"] = {"result": tool_result}
+                                else:
+                                    tool_info["output"] = tool_result
 
                             else:
                                 logger.warning(

@@ -16,7 +16,7 @@ const API_CONFIG = {
   CHAT_ENDPOINT: '/api/{tenant_id}/chat',
   TEST_CHAT_ENDPOINT: '/api/{tenant_id}/test/chat',
   LOGIN_ENDPOINT: '/api/auth/login',
-  TIMEOUT_MS: 30000,
+  TIMEOUT_MS: 60000, // Increased from 30s to 60s for tool execution
 };
 
 /**
@@ -77,8 +77,8 @@ export async function sendMessage(params: SendMessageParams): Promise<ChatServic
       agent_name: agentName, // Phase 1: Direct routing parameter
       metadata: params.jwt
         ? {
-            jwt_token: params.jwt,
-          }
+          jwt_token: params.jwt,
+        }
         : {},
     };
 

@@ -7,6 +7,7 @@ import { XMarkIcon, ClockIcon } from './icons';
 import MessageList from './shared/MessageList';
 import MessageInput from './shared/MessageInput';
 import EscalationDialog from './shared/EscalationDialog';
+import { AVAILABLE_AGENTS, AgentName } from '../src/config/topic-agent-mapping';
 
 interface EmbeddedWidgetProps {
     tenant: Tenant;
@@ -37,6 +38,7 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
     const [isEscalated, setIsEscalated] = useState(false);
     const [showEscalationDialog, setShowEscalationDialog] = useState(false);
     const [escalationReason, setEscalationReason] = useState('');
+    const [selectedAgent, setSelectedAgent] = useState<AgentName | null>(null);
 
     // History Toggle State
     const [showHistory, setShowHistory] = useState(false);
@@ -203,6 +205,7 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                 sessionId,
                 userId,
                 jwt: token,
+                agentName: selectedAgent || undefined,
             });
 
             const aiMessage: Message = {
@@ -288,7 +291,7 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                                         ...s,
                                         lastUserMessage: lastUserMsg?.content || lastMessage?.content || "No user messages",
                                         last_message: lastMessage?.content || s.last_message
-                                      }
+                                    }
                                     : s
                             );
                         }
@@ -426,7 +429,47 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
             )}
 
             <MessageList messages={messages} primaryColor={primaryColor} isTyping={isTyping} messagesEndRef={messagesEndRef} />
-            <MessageInput input={input} setInput={setInput} onSend={handleSendMessage} isTyping={isTyping} attachedFile={attachedFile} onFileAttach={setAttachedFile} primaryColor={primaryColor} placeholder="Type your message..." />
+
+            {/* Topic Selector - Compact */}
+            <div className="px-3 py-2 border-t bg-gray-50">
+                <div className="flex gap-1.5">
+                    {AVAILABLE_AGENTS.map(agent => (
+                        <button
+                            key={agent.name}
+                            onClick={() => setSelectedAgent(agent.name)}
+                            className={`flex-1 px-2 py-1.5 text-xs rounded font-medium transition-all ${selectedAgent === agent.name
+                                ? 'bg-blue-500 text-white shadow-sm'
+                                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                                }`}
+                            title={agent.description}
+                        >
+                            <div className="flex items-center justify-center gap-1">
+                                <span>{agent.icon}</span>
+                                <span>
+                                    {agent.name === 'GuidelineAgent' ? 'Support' :
+                                        agent.name === 'SupervisorAgent' ? 'Chung' : 'Công nợ'}
+                                </span>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+                {!selectedAgent && (
+                    <p className="text-[10px] text-orange-600 mt-1 text-center">
+                        ⚠️ Chọn Topic trước
+                    </p>
+                )}
+            </div>
+
+            <MessageInput
+                input={input}
+                setInput={setInput}
+                onSend={handleSendMessage}
+                isTyping={isTyping || !selectedAgent}
+                attachedFile={attachedFile}
+                onFileAttach={setAttachedFile}
+                primaryColor={primaryColor}
+                placeholder={selectedAgent ? "Type your message..." : "Chọn chủ đề trước..."}
+            />
 
             <EscalationDialog
                 show={showEscalationDialog}

@@ -1,67 +1,125 @@
-# Multi-stage Dockerfile for ITL Chatbot Backend
-# Uses UV for fast dependency installation
+# =============================================================================
+# ITL CHATBOT - DOCKER IMAGE
+# =============================================================================
+# Multi-stage Docker build for production-ready FastAPI application
+# Supports both development and production environments
+# Uses UV for fast Python dependency management
+# =============================================================================
 
-# ============================================================================
-# Stage 1: Builder - Install dependencies with UV
-# ============================================================================
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS base
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq5 \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install UV for fast dependency management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Set working directory
-WORKDIR /app
+# =============================================================================
+# FRONTEND BUILD STAGE
+# =============================================================================
+FROM node:22-alpine AS frontend-builder
 
-# Copy dependency files
+WORKDIR /app/frontend
+
+# Install frontend dependencies
+COPY frontend/package*.json ./
+RUN npm ci
+
+# Build frontend for production
+COPY frontend/ .
+RUN npm run build
+
+# =============================================================================
+# DEVELOPMENT STAGE
+# =============================================================================
+FROM base AS development
+
+# Copy dependency files first for better Docker layer caching
 COPY pyproject.toml uv.lock ./
 
-# Install dependencies using UV (much faster than pip)
-# --system: Install to system Python instead of virtual env
-# --frozen: Use exact versions from uv.lock
-RUN uv sync --frozen --no-dev --system
+# Install ALL dependencies (including dev)
+RUN uv sync --frozen
 
-# ============================================================================
-# Stage 2: Runtime - Minimal production image
-# ============================================================================
-FROM python:3.11-slim
+# Install additional development tools
+RUN uv pip install --system \
+    debugpy \
+    ipython
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    # Disable UV update checks in production
-    UV_NO_UPDATE_CHECK=1
+# Copy application code
+COPY . .
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Required for some Python packages
-    libpq5 \
-    # Clean up
-    && rm -rf /var/lib/apt/lists/*
+# Copy frontend build (for serving static files)
+COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+
+# Create logs directory
+RUN mkdir -p logs
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && \
-    mkdir -p /app && \
     chown -R appuser:appuser /app
-
-# Set working directory
-WORKDIR /app
-
-# Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-
-# Copy application code
-COPY --chown=appuser:appuser . .
-
-# Switch to non-root user
 USER appuser
 
-# Expose port
+# Set Python path
+ENV PYTHONPATH=/app/backend \
+    PATH="/app/.venv/bin:$PATH"
+
+EXPOSE 8000
+
+# Development command with hot reload
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# =============================================================================
+# PRODUCTION STAGE
+# =============================================================================
+FROM base AS production
+
+# Copy dependency files and install production dependencies only
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+
+# Copy application code
+COPY . .
+
+# Copy frontend build
+COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+
+# Create logs directory and set permissions
+RUN mkdir -p logs && \
+    useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+# Set Python path
+ENV PYTHONPATH=/app/backend \
+    PATH="/app/.venv/bin:$PATH"
+
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=5)" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Production command with uvicorn (multiple workers)
+CMD ["uvicorn", \
+     "src.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "4", \
+     "--loop", "uvloop", \
+     "--http", "httptools", \
+     "--access-log", \
+     "--log-level", "warning"]
