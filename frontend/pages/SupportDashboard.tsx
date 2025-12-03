@@ -210,9 +210,17 @@ const SupportDashboard: React.FC = () => {
                                     .map((session) => {
                                         return (
                                             <div
-                                                key={session.session_id}
-                                                onClick={() => navigate(`/support/chat/${session.session_id}`)}
                                                 className="p-4 hover:bg-indigo-50 cursor-pointer transition-all duration-200 border-l-4 border-transparent hover:border-indigo-500 hover:shadow-sm"
+                                                key={session.session_id}
+                                                onClick={() => {
+                                                    console.log('Navigating to session:', session);
+                                                    navigate(`/support/chat/${session.session_id}`, {
+                                                        state: {
+                                                            user_name: session.user_name,
+                                                            user_email: session.user_email
+                                                        }
+                                                    });
+                                                }}
                                             >
                                                 {/* User name and time */}
                                                 <div className="flex justify-between items-start mb-1">

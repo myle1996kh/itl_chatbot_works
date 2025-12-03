@@ -69,6 +69,8 @@ class SupporterSessionInfo(BaseModel):
     session_id: str = Field(..., description="Session UUID")
     tenant_id: str = Field(..., description="Tenant UUID")
     user_id: str = Field(..., description="Tenant user UUID")
+    user_email: Optional[str] = Field(None, description="User email")
+    user_name: Optional[str] = Field(None, description="User name")
     escalation_status: str = Field(..., description="Escalation status")
     escalation_reason: Optional[str] = Field(
         None, description="Reason for escalation"
@@ -87,6 +89,8 @@ class SupporterSessionInfo(BaseModel):
                 "session_id": "550e8400-e29b-41d4-a716-446655440000",
                 "tenant_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
                 "user_id": "user-uuid-123",
+                "user_email": "user@example.com",
+                "user_name": "John Doe",
                 "escalation_status": "assigned",
                 "escalation_reason": "User frustrated with bot",
                 "assigned_user_id": "550e8400-e29b-41d4-a716-446655440111",
@@ -123,6 +127,8 @@ class SupporterSessionsResponse(BaseModel):
                         "session_id": "550e8400-e29b-41d4-a716-446655440000",
                         "tenant_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
                         "user_id": "user-uuid-123",
+                        "user_email": "user@example.com",
+                        "user_name": "John Doe",
                         "escalation_status": "assigned",
                         "escalation_reason": "User frustrated",
                         "assigned_user_id": "550e8400-e29b-41d4-a716-446655440111",
