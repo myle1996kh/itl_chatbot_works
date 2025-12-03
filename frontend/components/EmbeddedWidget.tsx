@@ -42,8 +42,40 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
     const [showHistory, setShowHistory] = useState(false);
     const [sessionList, setSessionList] = useState<(SessionSummary & { lastUserMessage?: string })[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+    const [historyError, setHistoryError] = useState<string | null>(null);
+    const historyCacheRef = useRef<{
+        sessions: (SessionSummary & { lastUserMessage?: string })[];
+        fetchedAt: number;
+    } | null>(null);
+    const HISTORY_LIMIT = 20;
+    const HISTORY_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const historyRef = useRef<HTMLDivElement>(null); // For click outside detection
+
+    // Close history when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (showHistory && historyRef.current && !historyRef.current.contains(event.target as Node)) {
+                setShowHistory(false);
+            }
+        };
+
+        // Close history when pressing ESC key
+        const handleEscKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && showHistory) {
+                setShowHistory(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('keydown', handleEscKey);
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleEscKey);
+        };
+    }, [showHistory]);
 
     // Fetch messages when sessionId changes (Restore history)
     useEffect(() => {
@@ -66,7 +98,7 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                     }));
 
                     // Load escalation status from session detail
-                    if (sessionDetail.escalation_status && sessionDetail.escalation_status !== 'none') {
+                    if (sessionDetail.escalation_status && sessionDetail.escalation_status !== 'none' && sessionDetail.escalation_status !== 'resolved') {
                         setIsEscalated(true);
                     } else {
                         setIsEscalated(false);
@@ -119,6 +151,20 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                             supporterName: data.message.supporter_name,
                         }];
                     });
+                } else if (data.type === 'escalation_status_update') {
+                    // Handle escalation status updates
+                    if (data.escalation_status && data.escalation_status !== 'none' && data.escalation_status !== 'resolved') {
+                        setIsEscalated(true);
+                    } else if (data.escalation_status === 'resolved') {
+                        setIsEscalated(false);
+                        // Add a system message about resolution
+                        setMessages(prev => [...prev, {
+                            id: `system-${Date.now()}`,
+                            text: '✅ Your request has been resolved by a supporter. You can escalate again if needed.',
+                            sender: 'ai',
+                            timestamp: new Date().toISOString(),
+                        }]);
+                    }
                 }
             } catch (error) {
                 console.error('SSE error:', error);
@@ -201,50 +247,96 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
         }
     };
 
-    const toggleHistory = async () => {
-        if (!showHistory) {
-            setIsLoadingHistory(true);
-            try {
-                const sessions = await getUserSessions(tenant.id, userId, token);
-                // Filter out current session
-                const filteredSessions = sessions.filter(s => s.session_id !== sessionId);
+    const loadHistory = async (forceRefresh = false) => {
+        // Reuse cached list if still fresh
+        const now = Date.now();
+        if (!forceRefresh && historyCacheRef.current && (now - historyCacheRef.current.fetchedAt) < HISTORY_CACHE_TTL_MS) {
+            setSessionList(historyCacheRef.current.sessions);
+            return;
+        }
 
-                // Initialize list with existing summary data
-                setSessionList(filteredSessions);
+        setIsLoadingHistory(true);
+        setHistoryError(null);
+        try {
+            const sessions = await getUserSessions(tenant.id, userId, token, { limit: HISTORY_LIMIT });
+            // Filter out current session and sort by most recent
+            const filteredSessions = sessions
+                .filter(s => s.session_id !== sessionId)
+                .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 
-                // Asynchronously fetch details to get the last USER message for each session
-                // We do this after setting the initial list to show UI quickly
-                filteredSessions.forEach(async (session) => {
+            // Seed list with existing summary data
+            let hydratedSessions: (SessionSummary & { lastUserMessage?: string })[] = filteredSessions.map(s => ({
+                ...s,
+                lastUserMessage: s.lastUserMessage || s.last_message,
+            }));
+
+            // For entries missing preview text, fetch a small subset of details to avoid a fan-out
+            const sessionsNeedingPreview = hydratedSessions.filter(s => !s.lastUserMessage && !s.last_message).slice(0, 5);
+            if (sessionsNeedingPreview.length) {
+                await Promise.all(sessionsNeedingPreview.map(async (session) => {
                     try {
                         const detail = await getSessionDetailPublic(tenant.id, session.session_id, token);
-                        if (detail && detail.messages) {
-                            // Find last message from user
+                        if (detail && detail.messages && detail.messages.length > 0) {
+                            // Get the last message from the session (regardless of sender)
+                            const lastMessage = detail.messages[detail.messages.length - 1];
+                            // Also specifically try to find the last user message if needed
                             const lastUserMsg = [...detail.messages].reverse().find(m => m.role === 'user');
-                            if (lastUserMsg) {
-                                setSessionList(prev => prev.map(s =>
-                                    s.session_id === session.session_id
-                                        ? { ...s, lastUserMessage: lastUserMsg.content }
-                                        : s
-                                ));
-                            }
+
+                            hydratedSessions = hydratedSessions.map(s =>
+                                s.session_id === session.session_id
+                                    ? {
+                                        ...s,
+                                        lastUserMessage: lastUserMsg?.content || lastMessage?.content || "No user messages",
+                                        last_message: lastMessage?.content || s.last_message
+                                      }
+                                    : s
+                            );
                         }
                     } catch (err) {
                         console.error(`Failed to fetch details for session ${session.session_id}`, err);
                     }
-                });
-
-            } catch (e) {
-                console.error(e);
-            } finally {
-                setIsLoadingHistory(false);
+                }));
             }
+
+            setSessionList(hydratedSessions);
+            historyCacheRef.current = { sessions: hydratedSessions, fetchedAt: now };
+        } catch (e) {
+            console.error(e);
+            setHistoryError('Unable to load history right now.');
+        } finally {
+            setIsLoadingHistory(false);
         }
-        setShowHistory(!showHistory);
+    };
+
+    const toggleHistory = async () => {
+        if (!showHistory) {
+            await loadHistory();
+            setShowHistory(true);
+        } else {
+            setShowHistory(false);
+        }
     };
 
     const switchSession = (newSessionId: string) => {
         setSessionId(newSessionId);
-        setShowHistory(false);
+        setShowHistory(false); // Auto-close when switching sessions
+    };
+
+    const deleteSession = async (sessionIdToDelete: string) => {
+        // Since the backend doesn't support DELETE for sessions,
+        // we'll just remove it from the local cache and refresh the list
+        try {
+            // Remove the session from the local list
+            setSessionList(prev => prev.filter(session => session.session_id !== sessionIdToDelete));
+
+            // Also clear the cache to force a refresh on next history view
+            if (historyCacheRef.current) {
+                historyCacheRef.current = null;
+            }
+        } catch (error) {
+            console.error('Failed to delete session from local cache:', error);
+            alert('Failed to delete session. Please try again.');
+        }
     };
 
     const primaryColor = tenant.theme.primaryColor;
@@ -273,27 +365,59 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
 
             {/* History Dropdown */}
             {showHistory && (
-                <div className="absolute top-16 right-2 w-64 bg-white shadow-xl rounded-lg border border-gray-200 z-30 max-h-80 overflow-y-auto">
-                    <div className="p-2 border-b bg-gray-50 font-semibold text-xs text-gray-500">Previous Sessions</div>
+                <div
+                    ref={historyRef}
+                    className="absolute top-16 right-2 w-64 bg-white shadow-xl rounded-lg border border-gray-200 z-30 max-h-80 overflow-y-auto">
+                    <div className="p-2 border-b bg-gray-50 flex items-center justify-between text-xs text-gray-500">
+                        <span className="font-semibold">Previous Sessions</span>
+                        <button
+                            onClick={() => loadHistory(true)}
+                            disabled={isLoadingHistory}
+                            className="text-blue-600 hover:text-blue-800 disabled:text-gray-300"
+                        >
+                            Refresh
+                        </button>
+                    </div>
                     {isLoadingHistory ? (
                         <div className="p-4 text-center text-gray-400 text-xs">Loading...</div>
+                    ) : historyError ? (
+                        <div className="p-4 text-center text-red-500 text-xs">{historyError}</div>
                     ) : sessionList.length === 0 ? (
                         <div className="p-4 text-center text-gray-400 text-xs">No previous sessions</div>
                     ) : (
                         <ul>
                             {sessionList.map(session => (
                                 <li key={session.session_id}>
-                                    <button
-                                        onClick={() => switchSession(session.session_id)}
-                                        className="w-full text-left p-3 hover:bg-blue-50 border-b last:border-0 transition-colors"
-                                    >
-                                        <div className="text-xs font-medium text-gray-700">
-                                            {new Date(session.created_at).toLocaleString()}
-                                        </div>
-                                        <div className="text-xs text-gray-500 truncate mt-1">
-                                            {session.lastUserMessage || session.last_message || "No messages"}
-                                        </div>
-                                    </button>
+                                    <div className="w-full flex justify-between items-start">
+                                        <button
+                                            onClick={() => switchSession(session.session_id)}
+                                            className="flex-1 text-left p-3 hover:bg-blue-50 border-b last:border-0 transition-colors"
+                                        >
+                                            <div className="text-xs font-medium text-gray-700 flex justify-between">
+                                                <span>{new Date(session.created_at).toLocaleString()}</span>
+                                                {session.escalation_status && session.escalation_status !== 'none' && (
+                                                    <span className="text-orange-500 ml-2">Escalated</span>
+                                                )}
+                                            </div>
+                                            <div className="text-xs text-gray-500 truncate mt-1">
+                                                {(session.lastUserMessage && session.lastUserMessage !== "No user messages")
+                                                    ? session.lastUserMessage
+                                                    : (session.last_message || "No messages")}
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                deleteSession(session.session_id);
+                                            }}
+                                            className="p-2 text-gray-400 hover:text-red-500"
+                                            title="Delete session"
+                                        >
+                                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </li>
                             ))}
                         </ul>

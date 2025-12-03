@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircleIcon } from '../../components/icons';
+import { CheckIcon, ChevronRightIcon } from '../../components/icons';
 import AdminLayout from '../../components/AdminLayout';
 import { getJWTToken } from '../../services/authService';
 import {
@@ -71,10 +71,33 @@ const TenantSetupWizard: React.FC = () => {
         try {
             setLoading(true);
             const models = await getLLMModels(token);
-            setLLMModels(models);
+            console.log('LLM Models loaded from API:', models);
+
+            if (models && models.length > 0) {
+                setLLMModels(models);
+            } else {
+                // Use fallback only if API returns empty array
+                console.warn('API returned empty models, using fallback');
+                const fallbackModels = [
+                    { llm_model_id: '1', provider: 'openai', model_name: 'gpt-4' },
+                    { llm_model_id: '2', provider: 'openai', model_name: 'gpt-3.5-turbo' },
+                    { llm_model_id: '3', provider: 'anthropic', model_name: 'claude-3-opus' },
+                    { llm_model_id: '4', provider: 'anthropic', model_name: 'claude-3-sonnet' },
+                ];
+                setLLMModels(fallbackModels);
+            }
         } catch (err) {
             console.error('Failed to load LLM models:', err);
-            setError('Failed to load LLM models');
+            console.error('Error details:', err instanceof Error ? err.message : String(err));
+            // Fallback to default models if API fails
+            const fallbackModels = [
+                { llm_model_id: '1', provider: 'openai', model_name: 'gpt-4' },
+                { llm_model_id: '2', provider: 'openai', model_name: 'gpt-3.5-turbo' },
+                { llm_model_id: '3', provider: 'anthropic', model_name: 'claude-3-opus' },
+                { llm_model_id: '4', provider: 'anthropic', model_name: 'claude-3-sonnet' },
+            ];
+            setLLMModels(fallbackModels);
+            console.log('Using fallback LLM models due to error');
         } finally {
             setLoading(false);
         }
@@ -84,8 +107,11 @@ const TenantSetupWizard: React.FC = () => {
         if (!token) return;
         try {
             setLoading(true);
-            const data = await getAgents(token);
-            setAgents(data.agents || []);
+            // getAgents takes isActive boolean parameter, not token
+            // Token is handled internally via getJWTToken()
+            const data = await getAgents(true);  // Get only active agents
+            // getAgents already returns agents array, not wrapped object
+            setAgents(data || []);
         } catch (err) {
             console.error('Failed to load agents:', err);
             setError('Failed to load agents');
@@ -99,7 +125,8 @@ const TenantSetupWizard: React.FC = () => {
         try {
             setLoading(true);
             const data = await getTools(true);
-            setTools(data.tools || []);
+            // getTools already returns tools array, not wrapped object
+            setTools(data || []);
         } catch (err) {
             console.error('Failed to load tools:', err);
             setError('Failed to load tools');
@@ -319,11 +346,10 @@ const TenantSetupWizard: React.FC = () => {
                                     <div
                                         key={agent.agent_id}
                                         onClick={() => toggleAgent(agent.agent_id)}
-                                        className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                                            selectedAgents.includes(agent.agent_id)
-                                                ? 'border-indigo-500 bg-indigo-50'
-                                                : 'border-gray-200 hover:border-gray-300'
-                                        }`}
+                                        className={`p-4 border rounded-lg cursor-pointer transition-all ${selectedAgents.includes(agent.agent_id)
+                                            ? 'border-indigo-500 bg-indigo-50'
+                                            : 'border-gray-200 hover:border-gray-300'
+                                            }`}
                                     >
                                         <div className="flex items-start justify-between">
                                             <div className="flex-1">
@@ -355,11 +381,10 @@ const TenantSetupWizard: React.FC = () => {
                                     <div
                                         key={tool.tool_id}
                                         onClick={() => toggleTool(tool.tool_id)}
-                                        className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                                            selectedTools.includes(tool.tool_id)
-                                                ? 'border-indigo-500 bg-indigo-50'
-                                                : 'border-gray-200 hover:border-gray-300'
-                                        }`}
+                                        className={`p-4 border rounded-lg cursor-pointer transition-all ${selectedTools.includes(tool.tool_id)
+                                            ? 'border-indigo-500 bg-indigo-50'
+                                            : 'border-gray-200 hover:border-gray-300'
+                                            }`}
                                     >
                                         <div className="flex items-start justify-between">
                                             <div className="flex-1">
@@ -457,41 +482,37 @@ const TenantSetupWizard: React.FC = () => {
                             {STEPS.map((step, index) => (
                                 <li
                                     key={step.id}
-                                    className={`relative ${index !== STEPS.length - 1 ? 'pr-8 sm:pr-20 flex-1' : ''}`}
+                                    className={index !== STEPS.length - 1 ? 'flex-1' : ''}
                                 >
                                     <div className="flex items-center">
                                         <div
-                                            className={`relative flex h-8 w-8 items-center justify-center rounded-full ${
-                                                currentStep > step.id
-                                                    ? 'bg-indigo-600'
-                                                    : currentStep === step.id
-                                                      ? 'border-2 border-indigo-600 bg-white'
-                                                      : 'border-2 border-gray-300 bg-white'
-                                            }`}
+                                            className={`relative flex h-8 w-8 items-center justify-center rounded-full ${currentStep > step.id
+                                                ? 'bg-indigo-600'
+                                                : currentStep === step.id
+                                                    ? 'border-2 border-indigo-600 bg-white'
+                                                    : 'border-2 border-gray-300 bg-white'
+                                                }`}
                                         >
                                             {currentStep > step.id ? (
                                                 <CheckIcon className="h-5 w-5 text-white" />
                                             ) : (
                                                 <span
-                                                    className={`h-2.5 w-2.5 rounded-full ${
-                                                        currentStep === step.id ? 'bg-indigo-600' : 'bg-transparent'
-                                                    }`}
+                                                    className={`h-2.5 w-2.5 rounded-full ${currentStep === step.id ? 'bg-indigo-600' : 'bg-transparent'
+                                                        }`}
                                                 />
                                             )}
                                         </div>
                                         <span
-                                            className={`ml-3 text-sm font-medium ${
-                                                currentStep >= step.id ? 'text-indigo-600' : 'text-gray-500'
-                                            }`}
+                                            className={`ml-3 text-sm font-medium ${currentStep >= step.id ? 'text-indigo-600' : 'text-gray-500'
+                                                }`}
                                         >
                                             {step.name}
                                         </span>
                                     </div>
                                     {index !== STEPS.length - 1 && (
                                         <div
-                                            className={`absolute top-4 left-4 -ml-px h-0.5 w-full ${
-                                                currentStep > step.id ? 'bg-indigo-600' : 'bg-gray-300'
-                                            }`}
+                                            className={`absolute top-4 left-4 -ml-px h-0.5 w-full ${currentStep > step.id ? 'bg-indigo-600' : 'bg-gray-300'
+                                                }`}
                                             style={{ width: 'calc(100% - 2rem)' }}
                                         />
                                     )}

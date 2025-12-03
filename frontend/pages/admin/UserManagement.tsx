@@ -159,11 +159,19 @@ const UserManagement: React.FC = () => {
 
             await deleteUser(userToDelete.user_id);
 
+            // Only close dialog on success
             setShowDeleteDialog(false);
             setUserToDelete(null);
             await loadData();
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to delete user');
+            // Check if it's a 403 Forbidden error
+            const errorMessage = err instanceof Error ? err.message : 'Failed to delete user';
+            if (errorMessage.includes('403') || errorMessage.toLowerCase().includes('forbidden')) {
+                setError('❌ Access Denied: You do not have permission to delete this user.');
+            } else {
+                setError(errorMessage);
+            }
+            // Keep dialog open to show error
         } finally {
             setDeleting(false);
         }
@@ -505,8 +513,8 @@ const UserManagement: React.FC = () => {
                                             ? 'Creating...'
                                             : 'Saving...'
                                         : modalMode === 'create'
-                                          ? 'Create User'
-                                          : 'Save Changes'}
+                                            ? 'Create User'
+                                            : 'Save Changes'}
                                 </button>
                             </div>
                         </form>
@@ -524,9 +532,19 @@ const UserManagement: React.FC = () => {
                             {userToDelete.email})? This action cannot be undone.
                         </p>
 
+                        {/* Error Display in Dialog */}
+                        {error && (
+                            <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+                                {error}
+                            </div>
+                        )}
+
                         <div className="flex gap-2 justify-end">
                             <button
-                                onClick={() => setShowDeleteDialog(false)}
+                                onClick={() => {
+                                    setShowDeleteDialog(false);
+                                    setError(null); // Clear error when closing
+                                }}
                                 className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md font-medium"
                             >
                                 Cancel

@@ -48,7 +48,8 @@ export function getSessionApiBaseUrl(): string {
 export async function getUserSessions(
   tenantId: string,
   userId: string,
-  jwt?: string
+  jwt?: string,
+  options?: { limit?: number; offset?: number }
 ): Promise<SessionSummary[]> {
   try {
     const base = resolveBaseUrl(API_BASE_URL);
@@ -60,7 +61,8 @@ export async function getUserSessions(
 
     const params = new URLSearchParams({
       user_id: userId,
-      limit: '100',
+      limit: String(options?.limit ?? 100),
+      offset: String(options?.offset ?? 0),
     });
 
     const response = await fetch(

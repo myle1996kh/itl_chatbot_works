@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 // import remarkGfm from 'remark-gfm';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentUser, isAdmin, type LoginResponse } from '../services/authService';
-import { SUPPORTERS, TENANTS } from '../constants';
 import {
   getDocumentsForTopic,
   addDocumentToKnowledgeBase,
@@ -37,6 +36,7 @@ import {
   updateSupporter,
   deleteSupporter,
 } from '../services/adminService';
+import { getAgents } from '../services/agentService';
 import { ChatBubbleIcon, DocumentIcon, ExtractIcon, KnowledgeBaseIcon, UploadIcon, XCircleIcon } from './icons';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -69,9 +69,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
   const [loadingBackendData, setLoadingBackendData] = useState(false);
   const jwtToken = localStorage.getItem('jwtToken');
 
-  // Use backend tenants if available, otherwise fallback to constants
-  const tenants = backendTenants.length > 0 ? backendTenants : TENANTS;
-  const supporters = backendSupporters.length > 0 ? backendSupporters : SUPPORTERS;
+  // Use only backend data - no fallbacks
+  const tenants = backendTenants;
+  const supporters = backendSupporters;
 
   // Session management state
   const [allSessions, setAllSessions] = useState<ChatSession[]>([]);
@@ -81,14 +81,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
   const [currentUser, setCurrentUser] = useState<Supporter | null>(null); // null means Admin
   const [view, setView] = useState<AdminView>('sessions');
 
-  // State for Knowledge Base - Mock agents with Vietnamese names
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sessionsPerPage] = useState(100);
+  const [totalSessions, setTotalSessions] = useState(0);
+
+  // State for Knowledge Base - Real agents from backend
   const [kbTenant, setKbTenant] = useState<Tenant | null>(null);
-  const [kbAgent, setKbAgent] = useState<string>('GuidelineAgent');
-  const mockAgents = [
-    { id: 'GuidelineAgent', name: 'Hướng dẫn sử dụng eTMS' },
-    { id: 'InvoiceAgent', name: 'Tra cứu công nợ' },
-    { id: 'TrackingAgent', name: 'Tra cứu Shipment' },
-  ];
+  const [kbAgent, setKbAgent] = useState<string>('');
+  const [agents, setAgents] = useState<Array<{ agent_id: string; name: string }>>([]);
+  const [loadingAgents, setLoadingAgents] = useState(false);
   const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDocument[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
@@ -219,6 +221,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
     }
   }, [backendTenants]);
 
+  // Load agents from backend
+  useEffect(() => {
+    const loadAgents = async () => {
+      if (!jwtToken) {
+        setAgents([]);
+        return;
+      }
+
+      setLoadingAgents(true);
+      try {
+        const agentsData = await getAgents(true); // Only active agents
+        setAgents(agentsData.map(a => ({ agent_id: a.agent_id, name: a.name })));
+
+        // Set first agent as default if none selected
+        if (agentsData.length > 0 && !kbAgent) {
+          setKbAgent(agentsData[0].agent_id);
+        }
+
+        console.log(`✅ Loaded ${agentsData.length} agents from backend`);
+      } catch (error) {
+        console.error('Failed to load agents:', error);
+        setAgents([]);
+      } finally {
+        setLoadingAgents(false);
+      }
+    };
+
+    loadAgents();
+  }, [jwtToken]);
+
+
   const loadChatSessions = async () => {
     try {
       // Skip if invalid tenant id (e.g., 'default') until backend tenants load
@@ -281,6 +314,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
   useEffect(() => {
     // Load sessions on mount and when tenant changes
     loadChatSessions();
+    // Reset to page 1 when tenant changes
+    setCurrentPage(1);
     // Set up an interval to refresh sessions periodically to catch live updates
     /* 
     const interval = setInterval(() => {
@@ -839,16 +874,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
                     )}
                   </select>
                 )}
+                {/* Pagination Controls */}
+                {filteredSessions.length > sessionsPerPage && (
+                  <div className="mt-3 flex items-center justify-between text-sm">
+                    <button
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      ← Previous
+                    </button>
+                    <span className="text-gray-600">
+                      Page {currentPage} of {Math.ceil(filteredSessions.length / sessionsPerPage)}
+                    </span>
+                    <button
+                      onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredSessions.length / sessionsPerPage), p + 1))}
+                      disabled={currentPage >= Math.ceil(filteredSessions.length / sessionsPerPage)}
+                      className="px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                )}
               </div>
               <ul className="divide-y divide-gray-200 h-[calc(100vh-18rem)] overflow-y-auto">
-                {filteredSessions.map(session => (
-                  <li key={session.id} onClick={() => setSelectedSession(session)} className={`p-4 hover:bg-gray-50 cursor-pointer ${selectedSession?.id === session.id ? 'bg-indigo-50' : ''}`}>
-                    <div className="font-semibold text-gray-800">{(session as any).userName || session.userEmail || 'Unknown'}</div>
-                    <div className="text-xs text-gray-600">{session.userEmail}</div>
-                    <div className="text-sm text-gray-500">Tenant: {findTenant(session.tenantId, tenants)?.name}</div>
-                    <div className="text-xs text-gray-400">Last message: {new Date(session.lastActivity).toLocaleString()}</div>
-                  </li>
-                ))}
+                {filteredSessions
+                  .slice((currentPage - 1) * sessionsPerPage, currentPage * sessionsPerPage)
+                  .map(session => (
+                    <li key={session.id} onClick={() => setSelectedSession(session)} className={`p-4 hover:bg-gray-50 cursor-pointer ${selectedSession?.id === session.id ? 'bg-indigo-50' : ''}`}>
+                      <div className="font-semibold text-gray-800">{(session as any).userName || session.userEmail || 'Unknown'}</div>
+                      <div className="text-xs text-gray-600">{session.userEmail}</div>
+                      <div className="text-sm text-gray-500">Tenant: {findTenant(session.tenantId, tenants)?.name}</div>
+                      <div className="text-xs text-gray-400">Last message: {new Date(session.lastActivity).toLocaleString()}</div>
+                    </li>
+                  ))}
               </ul>
             </div>
             <div className="w-2/3 bg-white rounded-lg shadow flex flex-col">
@@ -883,21 +942,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
                     >
                       {selectedSession.messages.map((msg) => (
                         <div key={msg.id} className="flex items-start gap-3 mb-3">
-                          {!currentUser && (
-                            <input
-                              type="checkbox"
-                              className="mt-1"
-                              checked={!!selectedMessages[msg.id]}
-                              onChange={() => handleMessageSelection(msg)}
-                            />
-                          )}
+                          {/* Checkbox for message selection - always show in admin dashboard */}
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={!!selectedMessages[msg.id]}
+                            onChange={() => handleMessageSelection(msg)}
+                          />
                           <div className={`flex w-full ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                             <div
                               className={`rounded-lg px-3 py-2 max-w-lg shadow-sm break-words whitespace-pre-wrap ${msg.sender === 'user'
-                                ? 'bg-blue-500 text-white'
-                                : msg.sender === 'supporter'
-                                  ? 'bg-green-500 text-white'
-                                  : 'bg-gray-200 text-gray-800'
+                                  ? 'bg-blue-500 text-white'
+                                  : msg.sender === 'supporter'
+                                    ? 'bg-green-500 text-white'
+                                    : 'bg-gray-200 text-gray-800'
                                 }`}
                             >
                               {msg.sender !== 'user' && (
@@ -928,517 +986,533 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
                   )}
                 </>
               ) : <div className="flex items-center justify-center h-full text-gray-500">Select a chat session.</div>}
+            </div >
+            {
+              Object.keys(selectedMessages).length > 0 && (
+                <div className="fixed bottom-5 right-5 bg-white p-4 rounded-lg shadow-lg border animate-fade-in-up">
+                  <p className="font-semibold mb-2">{Object.keys(selectedMessages).length} messages selected.</p>
+                  <button onClick={() => setShowEnrichModal(true)} className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 flex items-center justify-center gap-2">
+                    <ExtractIcon className="h-5 w-5" />
+                    Enrich Knowledge Base
+                  </button>
+                </div>
+              )
+            }
+          </div >
+        )}
+        {
+          view === 'knowledge' && (
+            <div className="bg-white p-6 rounded-lg shadow">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Manage Knowledge Base</h2>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={useBackendKnowledge && !!jwtToken}
+                      onChange={() => setUseBackendKnowledge(!useBackendKnowledge)}
+                      disabled={!jwtToken}
+                      className="rounded border-gray-300"
+                    />
+                    <span className="text-sm font-medium text-gray-700">
+                      Use Backend API {!jwtToken && '(No JWT)'}
+                    </span>
+                  </label>
+                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${useBackendKnowledge && jwtToken ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                    {useBackendKnowledge && jwtToken ? '🔗 Connected' : '💾 Local'}
+                  </span>
+                </div>
+              </div>
+              {useBackendKnowledge && kbStats && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-sm text-blue-800">
+                    📊 Backend Statistics: <strong>{kbStats.document_count} documents</strong> in collection "<strong>{kbStats.collection_name}</strong>"
+                  </p>
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div>
+                  <label className="block text-sm font-medium">Tenant</label>
+                  <select onChange={e => {
+                    const newTenant = findTenant(e.target.value, tenants);
+                    if (newTenant) {
+                      setKbTenant(newTenant);
+                    }
+                  }} value={kbTenant?.id || ''} className="mt-1 w-full rounded-md border-gray-300">
+                    {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Agent</label>
+                  <select onChange={e => setKbAgent(e.target.value)} value={kbAgent} className="mt-1 w-full rounded-md border-gray-300" disabled={loadingAgents}>
+                    {loadingAgents ? (
+                      <option>Loading agents...</option>
+                    ) : agents.length === 0 ? (
+                      <option>No agents available</option>
+                    ) : (
+                      agents.map(agent => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)
+                    )}
+                  </select>
+                </div>
+                <div className="flex flex-col justify-end">
+                  <label htmlFor="file-upload" className={`w-full cursor-pointer text-white text-center py-2 px-4 rounded-md flex items-center justify-center gap-2 ${uploading ? 'bg-gray-500' : 'bg-green-600 hover:bg-green-700'}`}>
+                    <UploadIcon className="h-5 w-5" />
+                    {uploading ? 'Processing...' : 'Upload Document'}
+                  </label>
+                  <input
+                    id="file-upload"
+                    type="file"
+                    className="hidden"
+                    accept={useBackendKnowledge ? '.pdf,.docx,.doc' : '.txt,.pdf,.docx'}
+                    onChange={handleFileUpload}
+                    disabled={uploading}
+                  />
+                  {uploadStatus && <p className="text-xs text-center mt-1 text-gray-600">{uploadStatus}</p>}
+                  <p className="text-xs text-gray-500 mt-1 text-center">
+                    {useBackendKnowledge ? 'PDF, DOCX, DOC' : 'TXT, PDF, DOCX'}
+                  </p>
+                </div>
+              </div>
+              <h3 className="font-semibold text-lg mb-2">Knowledge Base Status for "{agents.find(a => a.agent_id === kbAgent)?.name || kbAgent}"</h3>
+              <div className="border rounded-lg p-4 bg-gray-50">
+                {useBackendKnowledge && jwtToken ? (
+                  <div className="space-y-4">
+                    {/* Knowledge Base Stats Block */}
+                    <div className="bg-white border border-indigo-200 rounded-lg p-4">
+                      <h4 className="font-semibold text-indigo-700 mb-3 flex items-center gap-2">
+                        <DocumentIcon className="h-5 w-5" />
+                        Collection: {kbStats?.collection_name || 'Loading...'}
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-indigo-50 rounded-md p-3">
+                          <p className="text-xs text-gray-600 mb-1">Total Documents</p>
+                          <p className="text-2xl font-bold text-indigo-600">{kbStats?.document_count || 0}</p>
+                        </div>
+                        <div className="bg-blue-50 rounded-md p-3">
+                          <p className="text-xs text-gray-600 mb-1">Status</p>
+                          <p className="text-sm font-semibold text-blue-600 mt-2">
+                            {kbStats && kbStats.document_count > 0 ? '✅ Active' : '⚠️ Empty'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Usage Guide */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <p className="text-xs text-blue-900">
+                        <strong>How to add documents:</strong>
+                      </p>
+                      <ul className="text-xs text-blue-800 mt-2 space-y-1 ml-4 list-disc">
+                        <li>Upload PDF, DOCX, or DOC files above</li>
+                        <li>Or select messages from chat history and click "Enrich Knowledge Base"</li>
+                        <li>Documents are chunked, embedded, and stored in pgvector</li>
+                        <li>Agents will use these documents for RAG retrieval</li>
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <p className="mb-2">Using local knowledge base (no backend connection)</p>
+                    <p className="text-xs">{knowledgeDocs.length} documents loaded locally</p>
+                  </div>
+                )}
+              </div>
             </div>
-            {Object.keys(selectedMessages).length > 0 && (
-              <div className="fixed bottom-5 right-5 bg-white p-4 rounded-lg shadow-lg border animate-fade-in-up">
-                <p className="font-semibold mb-2">{Object.keys(selectedMessages).length} messages selected.</p>
-                <button onClick={() => setShowEnrichModal(true)} className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 flex items-center justify-center gap-2">
-                  <ExtractIcon className="h-5 w-5" />
-                  Enrich Knowledge Base
+          )
+        }
+        {
+          view === 'users' && authenticatedUser && isAdmin() && (
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h2 className="text-xl font-bold mb-4">User Management</h2>
+
+              <div className="mb-6 flex gap-4 items-center">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Role:</label>
+                  <select
+                    value={userFilter}
+                    onChange={(e) => setUserFilter(e.target.value as any)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  >
+                    <option value="all">All Roles</option>
+                    <option value="admin">Admin</option>
+                    <option value="staff">Staff</option>
+                    <option value="tenant_user">Tenant User</option>
+                  </select>
+                </div>
+                <button
+                  onClick={async () => {
+                    setLoadingUsers(true);
+                    try {
+                      const userData = await listTenantUsers(filterTenantId, jwtToken || '', { role: userFilter === 'all' ? undefined : userFilter });
+                      setUsers(userData);
+                    } catch (error) {
+                      console.error('Failed to load users:', error);
+                    } finally {
+                      setLoadingUsers(false);
+                    }
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
+                >
+                  {loadingUsers ? 'Loading...' : 'Load Users'}
                 </button>
               </div>
-            )}
-          </div>
-        )}
-        {view === 'knowledge' && (
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Manage Knowledge Base</h2>
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={useBackendKnowledge && !!jwtToken}
-                    onChange={() => setUseBackendKnowledge(!useBackendKnowledge)}
-                    disabled={!jwtToken}
-                    className="rounded border-gray-300"
-                  />
-                  <span className="text-sm font-medium text-gray-700">
-                    Use Backend API {!jwtToken && '(No JWT)'}
-                  </span>
-                </label>
-                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${useBackendKnowledge && jwtToken ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                  {useBackendKnowledge && jwtToken ? '🔗 Connected' : '💾 Local'}
-                </span>
-              </div>
+
+              {loadingUsers ? (
+                <p className="text-gray-500">Loading users...</p>
+              ) : users.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-100 border-b">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Email</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Username</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Display Name</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Role</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Status</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Created</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {users.map((user) => (
+                        <tr key={user.user_id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-700">{user.email}</td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{user.username}</td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{user.display_name || 'N/A'}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${user.role === 'admin' ? 'bg-red-100 text-red-800' :
+                              user.role === 'staff' ? 'bg-blue-100 text-blue-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                              {user.role}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                              }`}>
+                              {user.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-500">No users found. Click "Load Users" to fetch data from backend.</p>
+              )}
             </div>
-            {useBackendKnowledge && kbStats && (
-              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-                <p className="text-sm text-blue-800">
-                  📊 Backend Statistics: <strong>{kbStats.document_count} documents</strong> in collection "<strong>{kbStats.collection_name}</strong>"
-                </p>
+          )
+        }
+
+        {
+          view === 'supporters' && authenticatedUser && isAdmin() && (
+            <div className="bg-white p-6 rounded-lg shadow">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold">Supporter Management</h2>
+                <button
+                  onClick={() => setShowCreateSupporterModal(true)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
+                >
+                  + Create Supporter
+                </button>
               </div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <div>
-                <label className="block text-sm font-medium">Tenant</label>
-                <select onChange={e => {
-                  const newTenant = findTenant(e.target.value, tenants);
-                  if (newTenant) {
-                    setKbTenant(newTenant);
-                  }
-                }} value={kbTenant?.id || ''} className="mt-1 w-full rounded-md border-gray-300">
-                  {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
+
+              {supporterMessage && (
+                <div className={`mb-4 p-4 rounded-lg ${supporterMessage.includes('success') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                  {supporterMessage}
+                </div>
+              )}
+
+              <div className="mb-4">
+                <button
+                  onClick={async () => {
+                    setLoadingSupporters(true);
+                    try {
+                      const supp = await getSupportersFromBackend(filterTenantId, jwtToken || '');
+                      setSupporterList(supp);
+                      setBackendSupporters(supp);
+                    } catch (error) {
+                      console.error('Failed to load supporters:', error);
+                    } finally {
+                      setLoadingSupporters(false);
+                    }
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
+                >
+                  {loadingSupporters ? 'Loading...' : 'Refresh List'}
+                </button>
               </div>
-              <div>
-                <label className="block text-sm font-medium">Agent</label>
-                <select onChange={e => setKbAgent(e.target.value)} value={kbAgent} className="mt-1 w-full rounded-md border-gray-300">
-                  {mockAgents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
-                </select>
-              </div>
-              <div className="flex flex-col justify-end">
-                <label htmlFor="file-upload" className={`w-full cursor-pointer text-white text-center py-2 px-4 rounded-md flex items-center justify-center gap-2 ${uploading ? 'bg-gray-500' : 'bg-green-600 hover:bg-green-700'}`}>
-                  <UploadIcon className="h-5 w-5" />
-                  {uploading ? 'Processing...' : 'Upload Document'}
-                </label>
-                <input
-                  id="file-upload"
-                  type="file"
-                  className="hidden"
-                  accept={useBackendKnowledge ? '.pdf,.docx,.doc' : '.txt,.pdf,.docx'}
-                  onChange={handleFileUpload}
-                  disabled={uploading}
-                />
-                {uploadStatus && <p className="text-xs text-center mt-1 text-gray-600">{uploadStatus}</p>}
-                <p className="text-xs text-gray-500 mt-1 text-center">
-                  {useBackendKnowledge ? 'PDF, DOCX, DOC' : 'TXT, PDF, DOCX'}
-                </p>
-              </div>
-            </div>
-            <h3 className="font-semibold text-lg mb-2">Knowledge Base Status for "{mockAgents.find(a => a.id === kbAgent)?.name || kbAgent}"</h3>
-            <div className="border rounded-lg p-4 bg-gray-50">
-              {useBackendKnowledge && jwtToken ? (
-                <div className="space-y-4">
-                  {/* Knowledge Base Stats Block */}
-                  <div className="bg-white border border-indigo-200 rounded-lg p-4">
-                    <h4 className="font-semibold text-indigo-700 mb-3 flex items-center gap-2">
-                      <DocumentIcon className="h-5 w-5" />
-                      Collection: {kbStats?.collection_name || 'Loading...'}
-                    </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-indigo-50 rounded-md p-3">
-                        <p className="text-xs text-gray-600 mb-1">Total Documents</p>
-                        <p className="text-2xl font-bold text-indigo-600">{kbStats?.document_count || 0}</p>
+
+              {loadingSupporters ? (
+                <p className="text-gray-500">Loading supporters...</p>
+              ) : supporterList.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-100 border-b">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Email</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Name</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Status</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Max Sessions</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {supporterList.map((s) => (
+                        <tr key={s.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-700">{s.email || 'N/A'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{s.name || 'N/A'}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${s.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                              }`}>
+                              {s.status || 'offline'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{s.max_concurrent_sessions || 5}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <button
+                              onClick={() => {
+                                const newStatus = s.status === 'online' ? 'offline' : 'online';
+                                setSupporterActionLoading(true);
+                                updateSupporter(filterTenantId, s.id, { status: newStatus }, jwtToken || '')
+                                  .then(() => {
+                                    setSupporterMessage(`Supporter status updated to ${newStatus}`);
+                                    setTimeout(() => setSupporterMessage(''), 3000);
+                                  })
+                                  .catch(err => setSupporterMessage(`Error: ${err.message}`))
+                                  .finally(() => setSupporterActionLoading(false));
+                              }}
+                              className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded hover:bg-blue-200 mr-2"
+                              disabled={supporterActionLoading}
+                            >
+                              Toggle Status
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSupporterActionLoading(true);
+                                deleteSupporter(filterTenantId, s.id, jwtToken || '')
+                                  .then(() => {
+                                    setSupporterMessage('Supporter deleted successfully');
+                                    setSupporterList(supporterList.filter(sup => sup.id !== s.id));
+                                    setTimeout(() => setSupporterMessage(''), 3000);
+                                  })
+                                  .catch(err => setSupporterMessage(`Error: ${err.message}`))
+                                  .finally(() => setSupporterActionLoading(false));
+                              }}
+                              className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded hover:bg-red-200"
+                              disabled={supporterActionLoading}
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-500">No supporters found. Click "Refresh List" or create a new one.</p>
+              )}
+
+              {showCreateSupporterModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                  <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
+                    <h3 className="text-lg font-bold mb-4">Create New Supporter</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">User ID:</label>
+                        <input
+                          type="text"
+                          value={supporterFormData.userId}
+                          onChange={(e) => setSupporterFormData({ ...supporterFormData, userId: e.target.value })}
+                          placeholder="Paste staff user UUID"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                        />
                       </div>
-                      <div className="bg-blue-50 rounded-md p-3">
-                        <p className="text-xs text-gray-600 mb-1">Status</p>
-                        <p className="text-sm font-semibold text-blue-600 mt-2">
-                          {kbStats && kbStats.document_count > 0 ? '✅ Active' : '⚠️ Empty'}
-                        </p>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Max Concurrent Sessions:</label>
+                        <input
+                          type="number"
+                          value={supporterFormData.maxSessions}
+                          onChange={(e) => setSupporterFormData({ ...supporterFormData, maxSessions: parseInt(e.target.value) })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                        />
+                      </div>
+                      <div className="flex gap-3 pt-4">
+                        <button
+                          onClick={() => setShowCreateSupporterModal(false)}
+                          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSupporterActionLoading(true);
+                            createSupporter(filterTenantId, supporterFormData.userId, supporterFormData.maxSessions, jwtToken || '')
+                              .then((newSupporter) => {
+                                setSupporterList([...supporterList, newSupporter]);
+                                setSupporterMessage('Supporter created successfully!');
+                                setShowCreateSupporterModal(false);
+                                setSupporterFormData({ userId: '', maxSessions: 5 });
+                                setTimeout(() => setSupporterMessage(''), 3000);
+                              })
+                              .catch(err => setSupporterMessage(`Error: ${err.message}`))
+                              .finally(() => setSupporterActionLoading(false));
+                          }}
+                          className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700"
+                          disabled={supporterActionLoading || !supporterFormData.userId}
+                        >
+                          {supporterActionLoading ? 'Creating...' : 'Create'}
+                        </button>
                       </div>
                     </div>
                   </div>
-
-                  {/* Usage Guide */}
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                    <p className="text-xs text-blue-900">
-                      <strong>How to add documents:</strong>
-                    </p>
-                    <ul className="text-xs text-blue-800 mt-2 space-y-1 ml-4 list-disc">
-                      <li>Upload PDF, DOCX, or DOC files above</li>
-                      <li>Or select messages from chat history and click "Enrich Knowledge Base"</li>
-                      <li>Documents are chunked, embedded, and stored in pgvector</li>
-                      <li>Agents will use these documents for RAG retrieval</li>
-                    </ul>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <p className="mb-2">Using local knowledge base (no backend connection)</p>
-                  <p className="text-xs">{knowledgeDocs.length} documents loaded locally</p>
                 </div>
               )}
             </div>
-          </div>
-        )}
-        {view === 'users' && authenticatedUser && isAdmin() && (
-          <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-bold mb-4">User Management</h2>
-
-            <div className="mb-6 flex gap-4 items-center">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Role:</label>
-                <select
-                  value={userFilter}
-                  onChange={(e) => setUserFilter(e.target.value as any)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                >
-                  <option value="all">All Roles</option>
-                  <option value="admin">Admin</option>
-                  <option value="staff">Staff</option>
-                  <option value="tenant_user">Tenant User</option>
-                </select>
-              </div>
-              <button
-                onClick={async () => {
-                  setLoadingUsers(true);
-                  try {
-                    const userData = await listTenantUsers(filterTenantId, jwtToken || '', { role: userFilter === 'all' ? undefined : userFilter });
-                    setUsers(userData);
-                  } catch (error) {
-                    console.error('Failed to load users:', error);
-                  } finally {
-                    setLoadingUsers(false);
-                  }
-                }}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
-              >
-                {loadingUsers ? 'Loading...' : 'Load Users'}
-              </button>
-            </div>
-
-            {loadingUsers ? (
-              <p className="text-gray-500">Loading users...</p>
-            ) : users.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-100 border-b">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Email</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Username</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Display Name</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Role</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Status</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Created</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {users.map((user) => (
-                      <tr key={user.user_id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm text-gray-700">{user.email}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{user.username}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{user.display_name || 'N/A'}</td>
-                        <td className="px-4 py-3 text-sm">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${user.role === 'admin' ? 'bg-red-100 text-red-800' :
-                            user.role === 'staff' ? 'bg-blue-100 text-blue-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                            {user.role}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                            }`}>
-                            {user.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-gray-500">No users found. Click "Load Users" to fetch data from backend.</p>
-            )}
-          </div>
-        )}
-
-        {view === 'supporters' && authenticatedUser && isAdmin() && (
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold">Supporter Management</h2>
-              <button
-                onClick={() => setShowCreateSupporterModal(true)}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
-              >
-                + Create Supporter
-              </button>
-            </div>
-
-            {supporterMessage && (
-              <div className={`mb-4 p-4 rounded-lg ${supporterMessage.includes('success') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                {supporterMessage}
-              </div>
-            )}
-
-            <div className="mb-4">
-              <button
-                onClick={async () => {
-                  setLoadingSupporters(true);
-                  try {
-                    const supp = await getSupportersFromBackend(filterTenantId, jwtToken || '');
-                    setSupporterList(supp);
-                    setBackendSupporters(supp);
-                  } catch (error) {
-                    console.error('Failed to load supporters:', error);
-                  } finally {
-                    setLoadingSupporters(false);
-                  }
-                }}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
-              >
-                {loadingSupporters ? 'Loading...' : 'Refresh List'}
-              </button>
-            </div>
-
-            {loadingSupporters ? (
-              <p className="text-gray-500">Loading supporters...</p>
-            ) : supporterList.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-100 border-b">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Email</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Name</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Status</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Max Sessions</th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {supporterList.map((s) => (
-                      <tr key={s.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm text-gray-700">{s.email || 'N/A'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{s.name || 'N/A'}</td>
-                        <td className="px-4 py-3 text-sm">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${s.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                            }`}>
-                            {s.status || 'offline'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{s.max_concurrent_sessions || 5}</td>
-                        <td className="px-4 py-3 text-sm">
-                          <button
-                            onClick={() => {
-                              const newStatus = s.status === 'online' ? 'offline' : 'online';
-                              setSupporterActionLoading(true);
-                              updateSupporter(filterTenantId, s.id, { status: newStatus }, jwtToken || '')
-                                .then(() => {
-                                  setSupporterMessage(`Supporter status updated to ${newStatus}`);
-                                  setTimeout(() => setSupporterMessage(''), 3000);
-                                })
-                                .catch(err => setSupporterMessage(`Error: ${err.message}`))
-                                .finally(() => setSupporterActionLoading(false));
-                            }}
-                            className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded hover:bg-blue-200 mr-2"
-                            disabled={supporterActionLoading}
-                          >
-                            Toggle Status
-                          </button>
-                          <button
-                            onClick={() => {
-                              setSupporterActionLoading(true);
-                              deleteSupporter(filterTenantId, s.id, jwtToken || '')
-                                .then(() => {
-                                  setSupporterMessage('Supporter deleted successfully');
-                                  setSupporterList(supporterList.filter(sup => sup.id !== s.id));
-                                  setTimeout(() => setSupporterMessage(''), 3000);
-                                })
-                                .catch(err => setSupporterMessage(`Error: ${err.message}`))
-                                .finally(() => setSupporterActionLoading(false));
-                            }}
-                            className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded hover:bg-red-200"
-                            disabled={supporterActionLoading}
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-gray-500">No supporters found. Click "Refresh List" or create a new one.</p>
-            )}
-
-            {showCreateSupporterModal && (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
-                  <h3 className="text-lg font-bold mb-4">Create New Supporter</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">User ID:</label>
-                      <input
-                        type="text"
-                        value={supporterFormData.userId}
-                        onChange={(e) => setSupporterFormData({ ...supporterFormData, userId: e.target.value })}
-                        placeholder="Paste staff user UUID"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Max Concurrent Sessions:</label>
-                      <input
-                        type="number"
-                        value={supporterFormData.maxSessions}
-                        onChange={(e) => setSupporterFormData({ ...supporterFormData, maxSessions: parseInt(e.target.value) })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                      />
-                    </div>
-                    <div className="flex gap-3 pt-4">
+          )
+        }
+        {
+          view === 'escalations' && (
+            <div className="flex gap-6">
+              <div className="w-1/3 bg-white rounded-lg shadow overflow-hidden flex flex-col">
+                <div className="p-4 border-b">
+                  <h2 className="text-lg font-semibold mb-4">Escalations</h2>
+                  <div className="flex gap-2 mb-4">
+                    {(['pending', 'assigned', 'resolved'] as const).map(status => (
                       <button
-                        onClick={() => setShowCreateSupporterModal(false)}
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={() => {
-                          setSupporterActionLoading(true);
-                          createSupporter(filterTenantId, supporterFormData.userId, supporterFormData.maxSessions, jwtToken || '')
-                            .then((newSupporter) => {
-                              setSupporterList([...supporterList, newSupporter]);
-                              setSupporterMessage('Supporter created successfully!');
-                              setShowCreateSupporterModal(false);
-                              setSupporterFormData({ userId: '', maxSessions: 5 });
-                              setTimeout(() => setSupporterMessage(''), 3000);
-                            })
-                            .catch(err => setSupporterMessage(`Error: ${err.message}`))
-                            .finally(() => setSupporterActionLoading(false));
-                        }}
-                        className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700"
-                        disabled={supporterActionLoading || !supporterFormData.userId}
-                      >
-                        {supporterActionLoading ? 'Creating...' : 'Create'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        {view === 'escalations' && (
-          <div className="flex gap-6">
-            <div className="w-1/3 bg-white rounded-lg shadow overflow-hidden flex flex-col">
-              <div className="p-4 border-b">
-                <h2 className="text-lg font-semibold mb-4">Escalations</h2>
-                <div className="flex gap-2 mb-4">
-                  {(['pending', 'assigned', 'resolved'] as const).map(status => (
-                    <button
-                      key={status}
-                      onClick={() => setEscalationFilter(status)}
-                      className={`px-3 py-1 text-xs font-medium rounded ${escalationFilter === status
-                        ? 'bg-orange-500 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                        }`}
-                    >
-                      {status.charAt(0).toUpperCase() + status.slice(1)} ({
-                        status === 'pending' ? escalationStats.pending :
-                          status === 'assigned' ? escalationStats.assigned :
-                            escalationStats.resolved
-                      })
-                    </button>
-                  ))}
-                </div>
-                <select
-                  value={filterTenantId}
-                  onChange={e => setFilterTenantId(e.target.value)}
-                  className="w-full rounded-md border-gray-300 text-sm"
-                >
-                  {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
-              <div className="flex-1 overflow-y-auto">
-                {loadingEscalations ? (
-                  <div className="p-4 text-center text-gray-500">Loading escalations...</div>
-                ) : escalations.length > 0 ? (
-                  <ul className="divide-y">
-                    {escalations.map(esc => (
-                      <li
-                        key={esc.session_id}
-                        onClick={() => setSelectedEscalation(esc)}
-                        className={`p-3 cursor-pointer hover:bg-gray-50 border-l-4 ${selectedEscalation?.session_id === esc.session_id
-                          ? 'bg-blue-50 border-l-blue-500'
-                          : esc.escalation_status === 'pending'
-                            ? 'border-l-orange-500'
-                            : esc.escalation_status === 'assigned'
-                              ? 'border-l-yellow-500'
-                              : 'border-l-green-500'
+                        key={status}
+                        onClick={() => setEscalationFilter(status)}
+                        className={`px-3 py-1 text-xs font-medium rounded ${escalationFilter === status
+                          ? 'bg-orange-500 text-white'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                           }`}
                       >
-                        <p className="font-semibold text-sm text-gray-800">{esc.user_id}</p>
-                        <p className="text-xs text-gray-600 mt-1">Status: <span className="font-medium capitalize">{esc.escalation_status}</span></p>
-                        <p className="text-xs mt-1">
-                          {esc.assigned_user_id ? (
-                            <span className="text-green-600">
-                              Assigned to: <span className="font-medium">{escalationSupporters.find(s => s.supporter_id === esc.assigned_user_id)?.display_name || esc.assigned_user_id}</span>
+                        {status.charAt(0).toUpperCase() + status.slice(1)} ({
+                          status === 'pending' ? escalationStats.pending :
+                            status === 'assigned' ? escalationStats.assigned :
+                              escalationStats.resolved
+                        })
+                      </button>
+                    ))}
+                  </div>
+                  <select
+                    value={filterTenantId}
+                    onChange={e => setFilterTenantId(e.target.value)}
+                    className="w-full rounded-md border-gray-300 text-sm"
+                  >
+                    {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  {loadingEscalations ? (
+                    <div className="p-4 text-center text-gray-500">Loading escalations...</div>
+                  ) : escalations.length > 0 ? (
+                    <ul className="divide-y">
+                      {escalations.map(esc => (
+                        <li
+                          key={esc.session_id}
+                          onClick={() => setSelectedEscalation(esc)}
+                          className={`p-3 cursor-pointer hover:bg-gray-50 border-l-4 ${selectedEscalation?.session_id === esc.session_id
+                            ? 'bg-blue-50 border-l-blue-500'
+                            : esc.escalation_status === 'pending'
+                              ? 'border-l-orange-500'
+                              : esc.escalation_status === 'assigned'
+                                ? 'border-l-yellow-500'
+                                : 'border-l-green-500'
+                            }`}
+                        >
+                          <p className="font-semibold text-sm text-gray-800">{esc.user_id}</p>
+                          <p className="text-xs text-gray-600 mt-1">Status: <span className="font-medium capitalize">{esc.escalation_status}</span></p>
+                          <p className="text-xs mt-1">
+                            {esc.assigned_user_id ? (
+                              <span className="text-green-600">
+                                Assigned to: <span className="font-medium">{escalationSupporters.find(s => s.supporter_id === esc.assigned_user_id)?.display_name || esc.assigned_user_id}</span>
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">Not assigned</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">{new Date(esc.escalation_requested_at).toLocaleString()}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="p-4 text-center text-gray-500">No escalations found.</div>
+                  )}
+                </div>
+              </div>
+              <div className="w-2/3 bg-white rounded-lg shadow flex flex-col p-4">
+                {selectedEscalation ? (
+                  <>
+                    <div className="border-b pb-4 mb-4">
+                      <h3 className="text-lg font-semibold">{selectedEscalation.user_id}</h3>
+                      <div className="mt-2 space-y-2 text-sm text-gray-600">
+                        <p><strong>Session ID:</strong> {selectedEscalation.session_id.slice(0, 8)}...</p>
+                        <p><strong>Status:</strong> <span className={`px-2 py-0.5 rounded text-xs font-medium ${selectedEscalation.escalation_status === 'pending' ? 'bg-orange-100 text-orange-800' :
+                          selectedEscalation.escalation_status === 'assigned' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-green-100 text-green-800'
+                          }`}>{selectedEscalation.escalation_status}</span></p>
+                        <p><strong>Reason:</strong> {selectedEscalation.escalation_reason}</p>
+                        <p><strong>Requested At:</strong> {new Date(selectedEscalation.escalation_requested_at).toLocaleString()}</p>
+                        {selectedEscalation.escalation_assigned_at && (
+                          <p><strong>Assigned At:</strong> {new Date(selectedEscalation.escalation_assigned_at).toLocaleString()}</p>
+                        )}
+                        <p>
+                          <strong>Assigned To:</strong>{' '}
+                          {selectedEscalation.assigned_user_id ? (
+                            <span className="text-green-600 font-medium">
+                              {escalationSupporters.find(s => s.supporter_id === selectedEscalation.assigned_user_id)?.display_name || selectedEscalation.assigned_user_id}
                             </span>
                           ) : (
                             <span className="text-gray-400">Not assigned</span>
                           )}
                         </p>
-                        <p className="text-xs text-gray-500 mt-1">{new Date(esc.escalation_requested_at).toLocaleString()}</p>
-                      </li>
-                    ))}
-                  </ul>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      {selectedEscalation.escalation_status === 'pending' && (
+                        <div>
+                          <label className="block text-sm font-medium mb-2">Assign Supporter</label>
+                          <select
+                            onChange={e => {
+                              if (e.target.value) {
+                                handleAssignSupporterToEscalation(selectedEscalation.session_id, e.target.value);
+                                e.target.value = '';
+                              }
+                            }}
+                            className="w-full rounded-md border-gray-300 text-sm"
+                          >
+                            <option value="">-- Select Supporter --</option>
+                            {escalationSupporters.map(s => (
+                              <option key={s.supporter_id} value={s.supporter_id}>
+                                {s.display_name} ({s.email})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      {(selectedEscalation.escalation_status === 'pending' || selectedEscalation.escalation_status === 'assigned') && (
+                        <button
+                          onClick={() => handleResolveEscalation(selectedEscalation.session_id)}
+                          className="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium"
+                        >
+                          Mark as Resolved
+                        </button>
+                      )}
+                    </div>
+                  </>
                 ) : (
-                  <div className="p-4 text-center text-gray-500">No escalations found.</div>
+                  <div className="flex items-center justify-center h-full text-gray-500">
+                    Select an escalation to view details.
+                  </div>
                 )}
               </div>
             </div>
-            <div className="w-2/3 bg-white rounded-lg shadow flex flex-col p-4">
-              {selectedEscalation ? (
-                <>
-                  <div className="border-b pb-4 mb-4">
-                    <h3 className="text-lg font-semibold">{selectedEscalation.user_id}</h3>
-                    <div className="mt-2 space-y-2 text-sm text-gray-600">
-                      <p><strong>Session ID:</strong> {selectedEscalation.session_id.slice(0, 8)}...</p>
-                      <p><strong>Status:</strong> <span className={`px-2 py-0.5 rounded text-xs font-medium ${selectedEscalation.escalation_status === 'pending' ? 'bg-orange-100 text-orange-800' :
-                        selectedEscalation.escalation_status === 'assigned' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-green-100 text-green-800'
-                        }`}>{selectedEscalation.escalation_status}</span></p>
-                      <p><strong>Reason:</strong> {selectedEscalation.escalation_reason}</p>
-                      <p><strong>Requested At:</strong> {new Date(selectedEscalation.escalation_requested_at).toLocaleString()}</p>
-                      {selectedEscalation.escalation_assigned_at && (
-                        <p><strong>Assigned At:</strong> {new Date(selectedEscalation.escalation_assigned_at).toLocaleString()}</p>
-                      )}
-                      <p>
-                        <strong>Assigned To:</strong>{' '}
-                        {selectedEscalation.assigned_user_id ? (
-                          <span className="text-green-600 font-medium">
-                            {escalationSupporters.find(s => s.supporter_id === selectedEscalation.assigned_user_id)?.display_name || selectedEscalation.assigned_user_id}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">Not assigned</span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    {selectedEscalation.escalation_status === 'pending' && (
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Assign Supporter</label>
-                        <select
-                          onChange={e => {
-                            if (e.target.value) {
-                              handleAssignSupporterToEscalation(selectedEscalation.session_id, e.target.value);
-                              e.target.value = '';
-                            }
-                          }}
-                          className="w-full rounded-md border-gray-300 text-sm"
-                        >
-                          <option value="">-- Select Supporter --</option>
-                          {escalationSupporters.map(s => (
-                            <option key={s.supporter_id} value={s.supporter_id}>
-                              {s.display_name} ({s.email})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-                    {(selectedEscalation.escalation_status === 'pending' || selectedEscalation.escalation_status === 'assigned') && (
-                      <button
-                        onClick={() => handleResolveEscalation(selectedEscalation.session_id)}
-                        className="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium"
-                      >
-                        Mark as Resolved
-                      </button>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-center justify-center h-full text-gray-500">
-                  Select an escalation to view details.
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </main>
+          )
+        }
+      </main >
       {showEnrichModal && selectedSession && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-30">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
@@ -1466,7 +1540,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onSwitchToDem
           </div>
         </div>
       )}
-    </div>
+    </div >
   );
 };
 

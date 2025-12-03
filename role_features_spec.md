@@ -453,6 +453,10 @@ getMySessions(tenantId: string, supporterId: string): Promise<SessionSummary[]>
 - Add resolution notes
 - Escalate back to queue
 - Real-time message updates
+- **Enrich knowledge base from chat history** ⭐ NEW
+  - Select messages using checkboxes
+  - Enrich knowledge base with selected conversation snippets
+  - Automatically saves with proper metadata (source: chat_history)
 
 **API Calls:**
 ```typescript
@@ -468,6 +472,9 @@ resolveSession(tenantId: string, sessionId: string, data: {
   category?: 'bug' | 'feature_request' | 'guideline' | 'invoice' | 'tracking' | 'other';
 }): Promise<void>
 
+// POST /api/admin/tenants/{tenant_id}/knowledge/upload-document
+enrichFromChatHistory(tenantId: string, messages: Message[]): Promise<UploadResponse>
+
 // Note: Category field needs to be added to backend escalations table
 // For now, can include category in notes field as "Category: bug"
 ```
@@ -482,6 +489,13 @@ resolveSession(tenantId: string, sessionId: string, data: {
   - [ ] Verify category is saved
 - [ ] View user information
 - [ ] Filter history by category (in History page)
+- [ ] Enrich knowledge base from chat
+  - [ ] Select 2-3 messages using checkboxes
+  - [ ] Verify floating button appears with count
+  - [ ] Click "Enrich Knowledge Base" button
+  - [ ] Confirm enrichment in modal
+  - [ ] Verify success message and chunk count
+
 
 ---
 
@@ -857,3 +871,91 @@ describe('Role-based Routing', () => {
 - Admin can create tenants via wizard, manage users, and assign/resolve escalations.
 - Supporter can handle chats end-to-end (open, message, resolve with category) and view history.
 - Knowledge base, agent, tool, and settings screens support create/update/delete with confirmations and error handling.
+
+
+Admin Role Functions Summary
+Based on my analysis of the codebase, here's what Admin users can do:
+1. Dashboard (/admin/dashboard)
+Overview of system stats
+Quick access to all admin functions
+2. Chat Management (/admin/chats)
+View all chat sessions across all tenants
+Filter sessions by tenant
+View session details and messages
+Real-time updates via SSE
+Manual refresh button
+3. Escalation Management (/admin/escalations)
+View escalation queue
+Assign escalated sessions to supporters
+Resolve escalations
+Track escalation status (pending → assigned → resolved)
+4. Agent Management (/admin/agents)
+Create, read, update, delete AI agents
+Configure agent behavior and tools
+Assign agents to tenants
+Enable/disable agents
+5. Tool Management (/admin/tools)
+Create, read, update, delete tools
+Configure tool parameters and schemas
+Assign tools to agents
+Manage tool permissions per tenant
+6. Knowledge Base (/admin/knowledge)
+Upload documents (PDF, DOCX, TXT)
+Manage knowledge base content
+View document stats
+Delete documents
+RAG (Retrieval-Augmented Generation) configuration
+7. User Management (/admin/users) - UserManagement.tsx
+CRUD Operations:
+✅ Create User (auth.py:394)
+Set email, username, password
+Assign role: admin, supporter, tenant_user
+Assign to tenant
+Set status: active, inactive, suspended
+✅ List Users - Filter by:
+Role (admin, supporter, tenant_user)
+Status (active, inactive, suspended)
+Tenant
+✅ Update User (auth.py:573)
+Change email, username, display_name
+Change status
+Cannot change role (security)
+✅ Delete User
+Remove users from system
+8. Tenant Management (/admin/tenants) - TenantManagementPage.tsx
+CRUD Operations:
+✅ Create Tenant
+Set tenant name and domain
+✅ List Tenants
+View all organizations
+See creation dates
+✅ Update Tenant
+Change name and domain
+✅ Delete Tenant
+Remove tenant (with confirmation)
+✅ Configure Tenant (via wizard)
+LLM settings
+Widget configuration
+Agent assignments
+Tool permissions
+9. Settings (/admin/settings)
+System configuration
+LLM model settings
+Widget customization
+Key Admin Capabilities:
+✅ Multi-Tenant Management - Admins can see and manage ALL tenants
+✅ User Role Management - Create admins, supporters, and regular users
+✅ Full CRUD Access - Create, Read, Update, Delete for all resources
+✅ Security Controls - Manage user status (active/inactive/suspended)
+✅ System Configuration - Configure LLM, agents, tools, knowledge base
+✅ Real-time Monitoring - SSE-based live updates for sessions
+Admin vs Supporter vs Tenant User:
+Function	Admin	Supporter	Tenant User
+View all tenants	✅	❌	❌
+Manage users	✅	❌	❌
+Manage tenants	✅	❌	❌
+Configure agents/tools	✅	❌	❌
+View all chats	✅ (all tenants)	✅ (assigned only)	❌
+Handle escalations	✅	✅	❌
+Access knowledge base	✅	❌	❌
+Chat as end-user	❌	❌	✅

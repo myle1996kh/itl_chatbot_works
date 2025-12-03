@@ -148,7 +148,7 @@ export async function createTenant(data: { name: string; domain?: string }, toke
  */
 export async function updateTenant(tenantId: string, data: { name?: string; domain?: string; status?: string }, token: string): Promise<TenantResponse> {
   const response = await fetch(`${API_BASE_URL}/api/admin/tenants/${tenantId}`, {
-    method: 'PUT',
+    method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
@@ -263,7 +263,8 @@ export async function getLLMModels(token: string): Promise<any[]> {
   }
 
   const data = await response.json();
-  return data.models || [];
+  // Backend returns array directly, not wrapped in {models: []}
+  return Array.isArray(data) ? data : (data.models || []);
 }
 
 /**

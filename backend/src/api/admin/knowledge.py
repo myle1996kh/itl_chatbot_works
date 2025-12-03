@@ -17,7 +17,7 @@ from src.schemas.admin import (
     PDFUploadResponse,
 )
 from src.services.rag_service import get_rag_service
-from src.middleware.auth import require_admin_role
+from src.middleware.auth import require_admin_role, require_staff_role
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -404,7 +404,7 @@ async def upload_document(
     file: UploadFile = File(..., description="Document file to upload (PDF, DOCX)"),
     document_name: str = Form(None, description="Optional document name"),
     db: Session = Depends(get_db),
-    admin_payload: dict = Depends(require_admin_role),
+    staff_payload: dict = Depends(require_staff_role),
 ) -> PDFUploadResponse:
     """
     Upload and process a document file (PDF, DOCX, or TXT) into tenant's knowledge base.
@@ -428,7 +428,7 @@ async def upload_document(
 
     Use case: .txt files are useful for enriching knowledge base from chat history.
 
-    Requires admin role in JWT.
+    Requires admin or supporter role in JWT.
     """
     try:
         # Validate tenant exists
@@ -484,11 +484,12 @@ async def upload_document(
         try:
             # Prepare metadata
             additional_metadata = {
-                "uploaded_by_admin": admin_payload.get("user_id"),
+                "uploaded_by": staff_payload.get("user_id") or staff_payload.get("sub"),
+                "uploaded_by_role": staff_payload.get("role") or ("admin" if "admin" in staff_payload.get("roles", []) else "supporter"),
                 "original_filename": file.filename,
                 # Mark provenance so sources can be distinguished in vector store
-                "source": "document",
-                "source_detail": "upload_document",
+                "source": "chat_history" if file.filename.endswith("-enrichment.txt") else "document",
+                "source_detail": "chat_enrichment" if file.filename.endswith("-enrichment.txt") else "upload_document",
             }
             if document_name:
                 additional_metadata["document_name"] = document_name
@@ -508,14 +509,16 @@ async def upload_document(
                 )
 
             logger.info(
-                "document_uploaded_by_admin",
-                admin_user=admin_payload.get("user_id"),
+                "document_uploaded_by_staff",
+                staff_user=staff_payload.get("user_id") or staff_payload.get("sub"),
+                staff_role=staff_payload.get("role") or ("admin" if "admin" in staff_payload.get("roles", []) else "supporter"),
                 tenant_id=tenant_id,
                 filename=file.filename,
                 file_type=file_ext,
                 chunk_count=ingest_result.get("document_count"),
                 chunk_size=chunk_config.get("chunk_size") if chunk_config else "default",
-                chunk_overlap=chunk_config.get("chunk_overlap") if chunk_config else "default"
+                chunk_overlap=chunk_config.get("chunk_overlap") if chunk_config else "default",
+                source=additional_metadata.get("source")
             )
 
             return PDFUploadResponse(

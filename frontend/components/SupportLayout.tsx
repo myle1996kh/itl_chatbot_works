@@ -19,7 +19,6 @@ const SupportLayout: React.FC<SupportLayoutProps> = ({ children }) => {
     const navLinks = [
         { path: '/support', label: 'My Chats', icon: '💬' },
         { path: '/support/history', label: 'History', icon: '📋' },
-        { path: '/support/stats', label: 'Statistics', icon: '📊' },
         { path: '/support/profile', label: 'Profile', icon: '👤' },
     ];
 

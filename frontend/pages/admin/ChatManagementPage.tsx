@@ -126,9 +126,45 @@ const ChatManagementPage: React.FC = () => {
 
     useEffect(() => {
         loadChatSessions();
-        // Refresh every 10 seconds
-        const interval = setInterval(loadChatSessions, 10000);
-        return () => clearInterval(interval);
+    }, [filterTenantId]);
+
+    // SSE connection for real-time session list updates
+    useEffect(() => {
+        if (!filterTenantId) return;
+
+        const baseUrl = getApiBaseUrl();
+        const sseUrl = `${baseUrl}/api/admin/tenants/${filterTenantId}/sessions/stream`;
+
+        console.log('🔌 SSE: Connecting to session list stream', sseUrl);
+        const eventSource = new EventSource(sseUrl);
+
+        eventSource.onopen = () => console.log('✅ SSE session list connected');
+
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'session_update') {
+                    // Reload sessions when there's an update
+                    console.log('📥 SSE: Session update received, reloading...');
+                    loadChatSessions();
+                } else if (data.type === 'heartbeat') {
+                    console.log('💓 SSE: Heartbeat');
+                }
+            } catch (error) {
+                console.error('SSE parse error:', error);
+            }
+        };
+
+        eventSource.onerror = (error) => {
+            console.error('❌ SSE error:', error);
+            eventSource.close();
+        };
+
+        return () => {
+            console.log('🔌 SSE: Disconnecting session list stream');
+            eventSource.close();
+        };
     }, [filterTenantId]);
 
     // Load full session messages when a session is selected
@@ -248,7 +284,18 @@ const ChatManagementPage: React.FC = () => {
                 <div className="w-1/3 border-r bg-white flex flex-col">
                     <div className="p-4 border-b bg-gray-50">
                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-lg font-semibold text-gray-800">Chat Sessions</h2>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-lg font-semibold text-gray-800">Chat Sessions</h2>
+                                <button
+                                    onClick={loadChatSessions}
+                                    className="text-gray-400 hover:text-indigo-600 transition-colors"
+                                    title="Refresh sessions"
+                                >
+                                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                </button>
+                            </div>
                             <span className="bg-indigo-100 text-indigo-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
                                 {filteredSessions.length} Active
                             </span>
@@ -286,13 +333,18 @@ const ChatManagementPage: React.FC = () => {
                                     >
                                         <div className="flex justify-between items-start mb-1">
                                             <div className="font-medium text-gray-900 truncate w-2/3">
-                                                {session.userEmail || session.id.substring(0, 8)}
+                                                {session.userName || session.userEmail || 'Unknown User'}
                                             </div>
                                             <div className="text-xs text-gray-500 flex items-center">
                                                 <ClockIcon className="h-3 w-3 mr-1" />
                                                 {new Date(session.lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </div>
                                         </div>
+                                        {session.userEmail && (
+                                            <div className="text-xs text-gray-500 truncate mb-1">
+                                                {session.userEmail}
+                                            </div>
+                                        )}
                                         <div className="text-sm text-gray-500 truncate mb-2">
                                             {session.messages && session.messages.length > 0
                                                 ? session.messages[session.messages.length - 1].text.substring(0, 50) + '...'

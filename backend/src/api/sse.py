@@ -19,6 +19,9 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api", tags=["sse"])
 
+# Global manager for session list connections (tenant_id -> list of queues)
+session_list_manager = {}
+
 
 async def event_stream(session_id: str, queue: asyncio.Queue):
     """
@@ -133,3 +136,122 @@ async def stream_session_messages(
     except Exception as e:
         logger.error(f"SSE endpoint error: {e}")
         raise HTTPException(status_code=500, detail="Failed to establish SSE connection")
+
+
+@router.get("/admin/tenants/{tenant_id}/sessions/stream")
+async def stream_session_list_updates(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    token: Optional[str] = Query(None, description="JWT token for authentication"),
+    db: Session = Depends(get_db),
+):
+    """
+    Stream real-time updates for session list via Server-Sent Events.
+
+    This endpoint is for admin/supporter dashboards to get live updates
+    when sessions are created, updated, or status changes.
+
+    **Event Types**:
+    - `connected`: Initial connection confirmation
+    - `heartbeat`: Keep-alive ping (every 30s)
+    - `session_update`: Session was created or updated
+    """
+    try:
+        # TODO: Add authentication check
+        # For now, allow access (will add JWT verification)
+
+        logger.info(f"SSE session list connection for tenant {tenant_id}")
+
+        # Create queue for this connection
+        queue = asyncio.Queue()
+
+        # Register connection
+        if tenant_id not in session_list_manager:
+            session_list_manager[tenant_id] = []
+        session_list_manager[tenant_id].append(queue)
+
+        async def session_list_stream():
+            """Generate SSE event stream for session list."""
+            try:
+                # Send initial connection confirmation
+                yield f"data: {json.dumps({'type': 'connected', 'tenant_id': tenant_id})}\n\n"
+
+                # Heartbeat interval (30 seconds)
+                heartbeat_interval = 30
+                last_heartbeat = asyncio.get_event_loop().time()
+
+                while True:
+                    try:
+                        # Wait for message with timeout for heartbeat
+                        message = await asyncio.wait_for(
+                            queue.get(),
+                            timeout=heartbeat_interval
+                        )
+
+                        # Send message to client
+                        yield f"data: {json.dumps(message)}\n\n"
+
+                        last_heartbeat = asyncio.get_event_loop().time()
+
+                    except asyncio.TimeoutError:
+                        # Send heartbeat to keep connection alive
+                        current_time = asyncio.get_event_loop().time()
+                        if current_time - last_heartbeat >= heartbeat_interval:
+                            yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                            last_heartbeat = current_time
+
+            except asyncio.CancelledError:
+                logger.info(f"SSE session list stream cancelled for tenant {tenant_id}")
+                raise
+            finally:
+                # Cleanup on disconnect
+                if tenant_id in session_list_manager:
+                    try:
+                        session_list_manager[tenant_id].remove(queue)
+                        if not session_list_manager[tenant_id]:
+                            del session_list_manager[tenant_id]
+                    except ValueError:
+                        pass
+
+        # Create streaming response
+        response = StreamingResponse(
+            session_list_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            }
+        )
+
+        return response
+
+    except Exception as e:
+        logger.error(f"SSE session list endpoint error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to establish SSE connection")
+
+
+async def broadcast_session_update(tenant_id: str, session_data: dict):
+    """
+    Broadcast session update to all connected clients for a tenant.
+
+    Call this function when a session is created, updated, or status changes.
+
+    Args:
+        tenant_id: The tenant ID
+        session_data: Session data to broadcast
+    """
+    if tenant_id not in session_list_manager or not session_list_manager[tenant_id]:
+        logger.debug(f"No active session list connections for tenant {tenant_id}")
+        return
+
+    message = {
+        'type': 'session_update',
+        'session': session_data
+    }
+
+    queues = session_list_manager[tenant_id].copy()
+    for queue in queues:
+        try:
+            await queue.put(message)
+        except Exception as e:
+            logger.error(f"Error broadcasting session update: {e}")

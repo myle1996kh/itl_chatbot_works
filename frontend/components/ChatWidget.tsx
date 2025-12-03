@@ -38,34 +38,66 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
   const getActiveSessionKey = () => `activeSession_${tenant.id}_${userInfo.email}`;
 
   useEffect(() => {
-    // Load chat history from localStorage
-    try {
-      const savedHistory = localStorage.getItem(getHistoryKey());
-      const topic = tenant.topics.find(t => t.id === initialTopicId);
-      setCurrentTopic(topic || null);
+    // Load chat history from localStorage and fetch session details
+    const loadSessionData = async () => {
+      try {
+        const savedHistory = localStorage.getItem(getHistoryKey());
+        const topic = tenant.topics.find(t => t.id === initialTopicId);
+        setCurrentTopic(topic || null);
 
-      if (savedHistory) {
-        setMessages(JSON.parse(savedHistory).messages);
-      } else if (topic) {
-        // Find the initial topic and add a welcome message
-        const welcomeMessage: Message = {
-          id: `ai-${Date.now()}`,
-          text: tenant.theme.welcomeMessage,
-          sender: 'ai',
-          timestamp: new Date().toISOString(),
-        };
-        setMessages([welcomeMessage]);
-      }
+        if (savedHistory) {
+          setMessages(JSON.parse(savedHistory).messages);
+        } else if (topic) {
+          // Find the initial topic and add a welcome message
+          const welcomeMessage: Message = {
+            id: `ai-${Date.now()}`,
+            text: tenant.theme.welcomeMessage,
+            sender: 'ai',
+            timestamp: new Date().toISOString(),
+          };
+          setMessages([welcomeMessage]);
+        }
 
-      // Restore active session id so follow-up messages go to the same session
-      const savedSessionId = localStorage.getItem(getActiveSessionKey()!);
-      if (savedSessionId) {
-        setSessionId(savedSessionId);
+        // Restore active session id so follow-up messages go to the same session
+        const savedSessionId = localStorage.getItem(getActiveSessionKey()!);
+        if (savedSessionId) {
+          setSessionId(savedSessionId);
+        }
+
+        // Load escalation status from backend
+        if (sessionId) {
+          try {
+            const baseUrl = getApiBaseUrl();
+            const response = await fetch(
+              `${baseUrl}/api/${tenant.id}/session/${sessionId}`,
+              {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+              }
+            );
+
+            if (response.ok) {
+              const data = await response.json();
+              // Load escalation status
+              if (data.escalation_status && data.escalation_status !== 'none' && data.escalation_status !== 'resolved') {
+                setIsEscalated(true);
+                setEscalationStatus(data.escalation_status);
+              } else {
+                setIsEscalated(false);
+                setEscalationStatus(data.escalation_status || 'none');
+              }
+            }
+          } catch (error) {
+            console.error('Failed to load escalation status:', error);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load or parse chat history", error);
       }
-    } catch (error) {
-      console.error("Failed to load or parse chat history", error);
-    }
-  }, [tenant, userInfo, initialTopicId]);
+    };
+
+    loadSessionData();
+  }, [tenant, userInfo, initialTopicId, sessionId]);
 
   // Sync prop to state when initialSessionId changes (parent updated the session)
   useEffect(() => {
@@ -78,50 +110,81 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
     }
   }, [initialSessionId]);
 
-  // Poll for new messages periodically (to catch supporter messages from admin)
+  // SSE connection for real-time updates (replaces polling)
   useEffect(() => {
-    // Start polling every 3 seconds for new messages
-    const pollInterval = setInterval(async () => {
+    if (!sessionId) return;
+
+    const baseUrl = getApiBaseUrl();
+    const sseUrl = `${baseUrl}/api/${tenant.id}/session/${sessionId}/stream`;
+
+    console.log('🔌 SSE: Connecting to', sseUrl);
+    const eventSource = new EventSource(sseUrl);
+
+    eventSource.onopen = () => console.log('✅ SSE connected');
+
+    eventSource.onmessage = (event) => {
       try {
-        // Fetch session details from backend to get latest messages
-        const baseUrl = getApiBaseUrl();
-        const response = await fetch(
-          `${baseUrl}/api/${tenant.id}/session/${sessionId}`,
-          {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
+        const data = JSON.parse(event.data);
 
-        if (response.ok) {
-          const data = await response.json();
-          // Check if there are new messages
-          if (data.messages && Array.isArray(data.messages)) {
-            // Transform backend messages to our format
-            const backendMessages = data.messages.map((msg: any) => ({
-              id: msg.message_id || `msg-${Math.random()}`,
-              text: msg.content,
-              sender: msg.role === 'user' ? 'user' : msg.role === 'assistant' ? 'ai' : 'supporter',
-              timestamp: msg.created_at || new Date().toISOString(),
-            }));
+        if (data.type === 'new_message') {
+          // Add new message from supporter
+          setMessages((prev) => {
+            // Avoid duplicates
+            if (prev.some(m => m.id === data.message.message_id)) return prev;
 
-            // Always update with latest messages from backend for this session
-            // (prevents message carryover when session changes)
-            console.log(`✅ Fetched ${backendMessages.length} messages from backend (was ${messages.length})`);
-            setMessages(backendMessages);
-            // Update localStorage
-            try {
-              localStorage.setItem(getHistoryKey(), JSON.stringify({ messages: backendMessages }));
-            } catch { }
+            return [...prev, {
+              id: data.message.message_id,
+              text: data.message.content,
+              sender: data.message.role === 'supporter' ? 'supporter' : 'ai',
+              timestamp: data.message.created_at,
+              supporterName: data.message.supporter_name,
+            }];
+          });
+        } else if (data.type === 'escalation_status_update') {
+          // Handle escalation status updates
+          const previousStatus = escalationStatus;
+
+          if (data.escalation_status && data.escalation_status !== 'none' && data.escalation_status !== 'resolved') {
+            setIsEscalated(true);
+            setEscalationStatus(data.escalation_status);
+          } else if (data.escalation_status === 'resolved') {
+            setIsEscalated(false);
+            setEscalationStatus('resolved');
+
+            // Add resolution message if status changed
+            if (previousStatus !== 'resolved' && previousStatus !== 'none') {
+              setMessages(prev => {
+                const hasResolutionMessage = prev.some(m =>
+                  m.text.includes('✅ Your request has been resolved')
+                );
+                if (!hasResolutionMessage) {
+                  return [...prev, {
+                    id: `system-resolved-${Date.now()}`,
+                    text: '✅ Your request has been resolved by a supporter. You can escalate again if needed.',
+                    sender: 'ai',
+                    timestamp: new Date().toISOString(),
+                  }];
+                }
+                return prev;
+              });
+            }
           }
         }
       } catch (error) {
-        // Silently ignore polling errors (not critical)
+        console.error('SSE parse error:', error);
       }
-    }, 3000); // Poll every 3 seconds
+    };
 
-    return () => clearInterval(pollInterval);
-  }, [sessionId, tenant.id]);
+    eventSource.onerror = (error) => {
+      console.error('❌ SSE error:', error);
+      eventSource.close();
+    };
+
+    return () => {
+      console.log('🔌 SSE: Disconnecting');
+      eventSource.close();
+    };
+  }, [sessionId, tenant.id, escalationStatus]);
 
   useEffect(() => {
     // Save chat history whenever it changes
@@ -400,20 +463,40 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
                 </div>
               )}
               <div
-                className="prose prose-sm max-w-none"
+                className="prose prose-sm max-w-none markdown-content"
                 style={{
                   whiteSpace: 'pre-wrap',
                 }}
               >
-                {/* <Markdown
+                <style>{`
+                    .markdown-content p { margin: 0.3em 0; }
+                    .markdown-content p.nguon { font-style: italic; }
+                    .markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { margin: 0.2em 0; font-weight: bold; }
+                    .markdown-content h1 { font-size: 1.8em; }
+                    .markdown-content h2 { font-size: 1.4em; }
+                    .markdown-content h3 { font-size: 1.15em; }
+                    .markdown-content ul, .markdown-content ol { margin: 0.3em 0; padding-left: 1.5em; }
+                    .markdown-content ul { list-style-type: disc; }
+                    .markdown-content ol { list-style-type: decimal; }
+                    .markdown-content li { margin: 0.1em 0; }
+                    .markdown-content code { background-color: rgba(0,0,0,0.05); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; }
+                    .markdown-content pre { background-color: #f6f8fa; padding: 1em; border-radius: 6px; overflow-x: auto; font-family: monospace; }
+                    .markdown-content blockquote { margin: 1em 0; padding-left: 1em; border-left: 4px solid ${primaryColor}; color: #666; font-style: italic; }
+                    .markdown-content a { color: ${primaryColor}; text-decoration: underline; }
+                `}</style>
+                <Markdown
                   remarkPlugins={[remarkGfm]}
                   components={{
-                    // ... components ...
+                    p: (props) => {
+                        const content = Array.isArray(props.children) ? props.children.join('') : String(props.children || '');
+                        return content.includes('Nguồn:')
+                          ? <p className="nguon" {...props} />
+                          : <p {...props} />;
+                    }
                   }}
                 >
                   {msg.text}
-                </Markdown> */}
-                <div className="whitespace-pre-wrap">{msg.text}</div>
+                </Markdown>
               </div>
             </div>
             {msg.sender === 'user' && <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center"><UserCircleIcon className="h-6 w-6 text-gray-600" /></div>}

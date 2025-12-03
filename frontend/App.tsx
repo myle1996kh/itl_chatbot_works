@@ -15,7 +15,6 @@ import SupportDashboard from './pages/SupportDashboard';
 import ChatRoomPage from './pages/ChatRoomPage';
 import HistoryPage from './pages/HistoryPage';
 import ProfilePage from './pages/ProfilePage';
-import StatisticsPage from './pages/StatisticsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 const App: React.FC = () => {
@@ -145,14 +144,6 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute requiredRole="supporter">
               <ProfilePage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/support/stats"
-          element={
-            <ProtectedRoute requiredRole="supporter">
-              <StatisticsPage />
             </ProtectedRoute>
           }
         />

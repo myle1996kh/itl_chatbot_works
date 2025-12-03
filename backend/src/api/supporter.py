@@ -125,6 +125,17 @@ async def get_supporter_sessions(
             raise HTTPException(status_code=404, detail="Supporter not found")
 
         # Build query for sessions assigned to supporter
+        # Subquery to get the last message content
+        last_message_subq = (
+            db.query(
+                Message.session_id,
+                Message.content.label("last_message_content")
+            )
+            .distinct(Message.session_id)
+            .order_by(Message.session_id, Message.created_at.desc())
+            .subquery()
+        )
+
         query = db.query(
             ChatSession.session_id,
             ChatSession.tenant_id,
@@ -139,10 +150,17 @@ async def get_supporter_sessions(
             func.max(Message.created_at).label("last_message_at"),
             ChatUser.email.label("user_email"),
             ChatUser.username.label("user_name"),
+            last_message_subq.c.last_message_content.label("last_message"),
         ).outerjoin(
             Message, ChatSession.session_id == Message.session_id
         ).outerjoin(
-            ChatUser, ChatSession.user_id == ChatUser.user_id
+            ChatUser,
+            and_(
+                ChatSession.user_id == ChatUser.user_id,
+                ChatSession.tenant_id == ChatUser.tenant_id
+            )
+        ).outerjoin(
+            last_message_subq, ChatSession.session_id == last_message_subq.c.session_id
         )
 
         # Filter: this tenant, assigned to supporter, not 'none' status
@@ -162,7 +180,8 @@ async def get_supporter_sessions(
         query = query.group_by(
             ChatSession.session_id,
             ChatUser.email,
-            ChatUser.username
+            ChatUser.username,
+            last_message_subq.c.last_message_content
         ).order_by(
             ChatSession.escalation_assigned_at.desc()
         )
@@ -194,14 +213,15 @@ async def get_supporter_sessions(
                     "session_id": str(session.session_id),
                     "tenant_id": str(session.tenant_id),
                     "user_id": str(session.user_id),
-                    "user_email": session.user_email,
-                    "user_name": session.user_name,
+                    "user_email": session.user_email if session.user_email else None,
+                    "user_name": session.user_name if session.user_name else None,
                     "escalation_status": session.escalation_status,
                     "escalation_reason": session.escalation_reason,
                     "assigned_user_id": str(session.assigned_user_id),
                     "escalation_requested_at": session.escalation_requested_at,
                     "escalation_assigned_at": session.escalation_assigned_at,
                     "message_count": session.message_count or 0,
+                    "last_message": session.last_message if hasattr(session, 'last_message') and session.last_message else None,
                     "last_message_at": session.last_message_at or session.created_at,
                     "created_at": session.created_at,
                 }

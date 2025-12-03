@@ -51,18 +51,38 @@ const MessageList: React.FC<MessageListProps> = ({
                         )}
 
                         <div
-                            className="prose prose-sm max-w-none"
+                            className="prose prose-sm max-w-none markdown-content"
                             style={{ whiteSpace: 'pre-wrap' }}
                         >
-                            {/* <Markdown
+                            <style>{`
+                                .markdown-content p { margin: 0.3em 0; }
+                                .markdown-content p.nguon { font-style: italic; }
+                                .markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { margin: 0.2em 0; font-weight: bold; }
+                                .markdown-content h1 { font-size: 1.8em; }
+                                .markdown-content h2 { font-size: 1.4em; }
+                                .markdown-content h3 { font-size: 1.15em; }
+                                .markdown-content ul, .markdown-content ol { margin: 0.3em 0; padding-left: 1.5em; }
+                                .markdown-content ul { list-style-type: disc; }
+                                .markdown-content ol { list-style-type: decimal; }
+                                .markdown-content li { margin: 0.1em 0; }
+                                .markdown-content code { background-color: rgba(0,0,0,0.05); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; }
+                                .markdown-content pre { background-color: #f6f8fa; padding: 1em; border-radius: 6px; overflow-x: auto; font-family: monospace; }
+                                .markdown-content blockquote { margin: 1em 0; padding-left: 1em; border-left: 4px solid ${primaryColor}; color: #666; font-style: italic; }
+                                .markdown-content a { color: ${primaryColor}; text-decoration: underline; }
+                            `}</style>
+                            <Markdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{
-                                    // ... components ...
+                                    p: (props) => {
+                                        const content = Array.isArray(props.children) ? props.children.join('') : String(props.children || '');
+                                        return content.includes('Nguồn:')
+                                            ? <p className="nguon" {...props} />
+                                            : <p {...props} />;
+                                    }
                                 }}
                             >
                                 {msg.text}
-                            </Markdown> */}
-                            <div className="whitespace-pre-wrap">{msg.text}</div>
+                            </Markdown>
                         </div>
                     </div>
 
