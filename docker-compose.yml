@@ -22,7 +22,7 @@ services:
       # Initialize pgvector extension
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     ports:
-      - "${DB_PORT:-32001}:32001"
+      - "${DB_PORT:-32001}:5432"
     networks:
       - itl_network
     healthcheck:
@@ -52,63 +52,65 @@ services:
       retries: 5
 
   # ============================================================================
-  # Backend Application
+  # Full Stack Application (Backend + Frontend)
   # ============================================================================
-  backend:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: itl_chatbot_backend
+    container_name: itl_chatbot_app
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - ./backend/.env
     environment:
       # Database
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-CHANGE_THIS_PASSWORD}@postgres:5432/${DB_NAME:-chatbot}
       DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
-      
+
       # Redis
       REDIS_URL: redis://${REDIS_PASSWORD:+:$REDIS_PASSWORD@}redis:6379
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-3600}
-      
+
       # Security
       FERNET_KEY: ${FERNET_KEY}
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
       DISABLE_AUTH: ${DISABLE_AUTH:-false}
-      
+
       # Application
       ENVIRONMENT: ${ENVIRONMENT:-production}
       LOG_LEVEL: ${LOG_LEVEL:-WARNING}
       API_HOST: 0.0.0.0
       API_PORT: 8000
-      
+
       # CORS
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173,https://your-frontend-domain.com}
+
       # Rate Limiting
       DEFAULT_RATE_LIMIT_RPM: ${DEFAULT_RATE_LIMIT_RPM:-60}
       DEFAULT_RATE_LIMIT_TPM: ${DEFAULT_RATE_LIMIT_TPM:-10000}
-      
+
       # LLM Providers (optional)
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       PROTONX_API_KEY: ${PROTONX_API_KEY:-}
-    
+
     volumes:
       # Mount JWT private key (read-only)
       - ./jwt_private.pem:/app/jwt_private.pem:ro
       # Optional: Mount uploads directory
       - uploads_data:/app/uploads
-    
+
     ports:
       - "${API_PORT:-8000}:8000"
-    
+
     networks:
       - itl_network
-    
+
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=5)"]
       interval: 30s

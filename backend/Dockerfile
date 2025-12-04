@@ -13,12 +13,20 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 
 # Copy dependency files
-COPY pyproject.toml uv.lock ./
+# Use docker-friendly requirements (omitting unavailable packages)
+COPY backend/requirements.docker.txt ./requirements.txt
 
-# Install dependencies using UV (much faster than pip)
-# --system: Install to system Python instead of virtual env
-# --frozen: Use exact versions from uv.lock
-RUN uv sync --frozen --no-dev --system
+# Install system build dependencies required for some Python packages (bcrypt, cryptography)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libssl-dev \
+    libffi-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies with pip from requirements.txt
+RUN python -m pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
 # ============================================================================
 # Stage 2: Runtime - Minimal production image

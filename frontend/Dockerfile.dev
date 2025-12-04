@@ -1,0 +1,15 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# copy package files and install deps
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
+
+# copy source
+COPY . .
+
+EXPOSE 3000
+
+# Start vite dev server and listen on all interfaces
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

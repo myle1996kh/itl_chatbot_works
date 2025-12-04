@@ -1,0 +1,38 @@
+# Ignore all files by default
+*
+
+# Include only what we need for the build
+!/backend
+!/pyproject.toml
+!/uv.lock
+
+# But ignore unnecessary backend files
+/backend/node_modules
+/backend/dist
+/backend/.git
+/backend/.venv
+/backend/venv
+/backend/.pytest_cache
+/backend/__pycache__
+/backend/*.pyc
+/backend/*.pyo
+/backend/*.log
+
+# Include frontend build files
+!/frontend/package*.json
+!/frontend/vite.config.ts
+!/frontend/tsconfig.json
+!/frontend/postcss.config.cjs
+!/frontend/tailwind.config.ts
+!/frontend/src
+!/frontend/public
+!/frontend/index.html
+!/frontend/assets
+
+# But ignore frontend development files
+/frontend/node_modules
+/frontend/dist
+/frontend/.git
+/frontend/.vscode
+/frontend/.vite
+/frontend/*.log

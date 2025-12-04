@@ -6,7 +6,7 @@ services:
   # ============================================================================
   postgres:
     image: pgvector/pgvector:pg15
-    container_name: itl_chatbot_postgres
+    container_name: itl_chatbot_postgres_dev
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-chatbot}
@@ -18,11 +18,11 @@ services:
       POSTGRES_EFFECTIVE_CACHE_SIZE: 1GB
       POSTGRES_WORK_MEM: 16MB
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      # Initialize pgvector extension
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - postgres_data_dev:/var/lib/postgresql/data
+      # Initialize pgvector extension (mount directory of SQL/scripts)
+      - ./init-db.sql:/docker-entrypoint-initdb.d
     ports:
-      - "${DB_PORT:-32001}:32001"
+      - "${DB_PORT:-32001}:5432"
     networks:
       - itl_network
     healthcheck:
@@ -36,11 +36,11 @@ services:
   # ============================================================================
   redis:
     image: redis:7-alpine
-    container_name: itl_chatbot_redis
+    container_name: itl_chatbot_redis_dev
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru ${REDIS_PASSWORD:+--requirepass $REDIS_PASSWORD}
     volumes:
-      - redis_data:/data
+      - redis_data_dev:/data
     ports:
       - "${REDIS_PORT:-6379}:6379"
     networks:
@@ -52,63 +52,78 @@ services:
       retries: 5
 
   # ============================================================================
-  # Backend Application
+  # Backend Application (Development)
   # ============================================================================
   backend:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: itl_chatbot_backend
+      dockerfile: backend/Dockerfile
+      target: builder  # Use builder stage for development
+    container_name: itl_chatbot_backend_dev
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - ./backend/.env
     environment:
       # Database
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-CHANGE_THIS_PASSWORD}@postgres:5432/${DB_NAME:-chatbot}
       DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
-      
+
       # Redis
       REDIS_URL: redis://${REDIS_PASSWORD:+:$REDIS_PASSWORD@}redis:6379
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-3600}
-      
+
       # Security
       FERNET_KEY: ${FERNET_KEY}
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
-      DISABLE_AUTH: ${DISABLE_AUTH:-false}
-      
+      DISABLE_AUTH: ${DISABLE_AUTH:-true}  # Enable dev auth
+
       # Application
-      ENVIRONMENT: ${ENVIRONMENT:-production}
-      LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
       API_HOST: 0.0.0.0
       API_PORT: 8000
-      
+
       # CORS
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+
       # Rate Limiting
       DEFAULT_RATE_LIMIT_RPM: ${DEFAULT_RATE_LIMIT_RPM:-60}
       DEFAULT_RATE_LIMIT_TPM: ${DEFAULT_RATE_LIMIT_TPM:-10000}
-      
+
       # LLM Providers (optional)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       PROTONX_API_KEY: ${PROTONX_API_KEY:-}
-    
+
     volumes:
+      # Mount backend source for hot-reload
+      - ./backend/src:/app/src
+      - ./backend/uv.lock:/app/uv.lock
+      - ./backend/pyproject.toml:/app/pyproject.toml
       # Mount JWT private key (read-only)
       - ./jwt_private.pem:/app/jwt_private.pem:ro
+      # Mount .env file for runtime access
+      - ./backend/.env:/app/.env:ro
       # Optional: Mount uploads directory
-      - uploads_data:/app/uploads
-    
+      - uploads_data_dev:/app/uploads
+
     ports:
       - "${API_PORT:-8000}:8000"
-    
+
+    # Run the development server with autoreload inside the container
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
     networks:
       - itl_network
-    
+
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=5)"]
       interval: 30s
@@ -117,11 +132,34 @@ services:
       retries: 3
 
   # ============================================================================
+  # Frontend Application (Development)
+  # ============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev  # You would need to create this
+    container_name: itl_chatbot_frontend_dev
+    restart: unless-stopped
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules  # Don't mount node_modules to avoid conflicts
+    ports:
+      - "3000:3000"  # Vite configured to run on port 3000 in `vite.config.ts`
+    environment:
+      - NODE_ENV=development
+    networks:
+      - itl_network
+    depends_on:
+      - backend
+    stdin_open: true
+    tty: true
+
+  # ============================================================================
   # Optional: pgAdmin for database management
   # ============================================================================
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: itl_chatbot_pgadmin
+    container_name: itl_chatbot_pgadmin_dev
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@itl.local}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
@@ -129,32 +167,14 @@ services:
     ports:
       - "${PGADMIN_PORT:-5050}:80"
     volumes:
-      - pgadmin_data:/var/lib/pgadmin
+      - pgadmin_data_dev:/var/lib/pgadmin
     depends_on:
       - postgres
     restart: unless-stopped
     networks:
       - itl_network
     profiles:
-      - admin  # Only start with: docker-compose --profile admin up
-
-  # ============================================================================
-  # Optional: Redis Commander for Redis management
-  # ============================================================================
-  redis-commander:
-    image: rediscommander/redis-commander:latest
-    container_name: itl_chatbot_redis_commander
-    environment:
-      REDIS_HOSTS: local:redis:6379${REDIS_PASSWORD:+:$REDIS_PASSWORD}
-    ports:
-      - "${REDIS_COMMANDER_PORT:-8081}:8081"
-    depends_on:
-      - redis
-    restart: unless-stopped
-    networks:
-      - itl_network
-    profiles:
-      - admin  # Only start with: docker-compose --profile admin up
+      - admin
 
 # ============================================================================
 # Networks
@@ -167,11 +187,11 @@ networks:
 # Volumes
 # ============================================================================
 volumes:
-  postgres_data:
+  postgres_data_dev:
     driver: local
-  redis_data:
+  redis_data_dev:
     driver: local
-  uploads_data:
+  uploads_data_dev:
     driver: local
-  pgadmin_data:
+  pgadmin_data_dev:
     driver: local
