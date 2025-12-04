@@ -235,6 +235,9 @@ def get_public_tenants(db: Session = Depends(get_db)):
                     "tenant_id": str(t.tenant_id),
                     "name": t.name,
                     "domain": t.domain,
+                    "status": t.status,
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                    "updated_at": t.updated_at.isoformat() if t.updated_at else None,
                 }
                 for t in tenants
             ]

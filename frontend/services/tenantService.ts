@@ -338,6 +338,8 @@ export interface WidgetConfig {
   enable_file_upload: boolean;
   enable_voice_input: boolean;
   enable_conversation_history: boolean;
+  embed_script_url?: string;
+  embed_code_snippet?: string;
   created_at: string;
   updated_at: string;
 }
@@ -419,6 +421,26 @@ export async function createWidgetConfig(tenantId: string, token: string): Promi
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.detail || `Failed to create widget config: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Regenerate widget keys for security rotation
+ */
+export async function regenerateWidgetKeys(tenantId: string, token: string): Promise<WidgetConfig> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants/${tenantId}/widget/regenerate-keys`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to regenerate widget keys: ${response.status}`);
   }
 
   return await response.json();

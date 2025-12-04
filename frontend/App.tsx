@@ -15,6 +15,7 @@ import ToolManagementPage from './pages/admin/ToolManagementPage';
 import SupportDashboard from './pages/SupportDashboard';
 import ChatRoomPage from './pages/ChatRoomPage';
 import HistoryPage from './pages/HistoryPage';
+import SupportKnowledgePage from './pages/support/SupportKnowledgePage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 const App: React.FC = () => {
@@ -144,6 +145,14 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute requiredRole="supporter">
               <HistoryPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/support/knowledge"
+          element={
+            <ProtectedRoute requiredRole="supporter">
+              <SupportKnowledgePage />
             </ProtectedRoute>
           }
         />

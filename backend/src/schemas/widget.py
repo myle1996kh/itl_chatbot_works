@@ -31,6 +31,10 @@ class WidgetConfigResponse(BaseModel):
     enable_voice_input: bool = False
     enable_conversation_history: bool = True
 
+    # Embed Code
+    embed_script_url: Optional[str] = None
+    embed_code_snippet: Optional[str] = None
+
     # Metadata
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

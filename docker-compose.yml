@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: itl-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chatbot_itl
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-this-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - itl-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (for caching and rate limiting)
+  redis:
+    image: redis:7-alpine
+    container_name: itl-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - itl-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ITL Chatbot Application (Frontend + Backend)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: itl-chatbot
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    # Load environment variables from backend/.env file
+    env_file:
+      - backend/.env
+    # Override specific variables for Docker environment
+    environment:
+      # Database connection (override .env for Docker network)
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-change-this-password}@postgres:5432/chatbot_itl
+      # Redis connection (override .env for Docker network)
+      REDIS_URL: redis://redis:6379
+      # Application settings
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - itl-network
+    volumes:
+      # Persist uploaded files
+      - uploads_data:/app/uploads
+
+networks:
+  itl-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  uploads_data:
+    driver: local

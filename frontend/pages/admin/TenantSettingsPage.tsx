@@ -11,6 +11,7 @@ import {
     getWidgetConfig,
     updateWidgetConfig,
     createWidgetConfig,
+    regenerateWidgetKeys,
     getLLMConfig,
     updateLLMConfig,
     TenantResponse,
@@ -312,6 +313,31 @@ const TenantSettingsPage: React.FC = () => {
         }
     };
 
+    const handleRegenerateKeys = async () => {
+        if (!tenantId || !token) return;
+
+        const confirmed = window.confirm(
+            '⚠️ Regenerating widget keys will invalidate the old embed code. ' +
+            'Websites using the old code will stop working. Continue?'
+        );
+
+        if (!confirmed) return;
+
+        try {
+            setSaving(true);
+            setError(null);
+            setSuccess(null);
+
+            const updated = await regenerateWidgetKeys(tenantId, token);
+            setWidgetData(updated);
+            setSuccess('Widget keys regenerated successfully! Update your embed code on all websites.');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to regenerate widget keys');
+        } finally {
+            setSaving(false);
+        }
+    };
+
     const tabs = [
         { id: 'basic', label: 'Thông tin cơ bản', icon: '📋' },
         { id: 'agents', label: 'Agents', icon: '🤖' },
@@ -584,14 +610,50 @@ const TenantSettingsPage: React.FC = () => {
                         )}
 
                         {widgetData && (
-                            <div className="bg-gray-50 border border-gray-200 p-4 rounded-lg">
-                                <p className="text-sm text-gray-700 mb-1">
-                                    <span className="font-semibold">Widget Key:</span> {widgetData.widget_key}
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                    Created: {new Date(widgetData.created_at).toLocaleString()}
-                                </p>
-                            </div>
+                            <>
+                                <div className="bg-gray-50 border border-gray-200 p-4 rounded-lg">
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <p className="text-sm text-gray-700 mb-1">
+                                                <span className="font-semibold">Widget Key:</span> {widgetData.widget_key}
+                                            </p>
+                                            <p className="text-xs text-gray-500">
+                                                Created: {new Date(widgetData.created_at).toLocaleString()}
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={handleRegenerateKeys}
+                                            disabled={saving}
+                                            className="ml-4 text-xs px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                                        >
+                                            🔄 Regenerate Keys
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="bg-gray-50 border border-gray-200 p-4 rounded-lg">
+                                    <p className="text-sm font-semibold text-gray-700 mb-2">Embed Code:</p>
+                                    {widgetData.embed_code_snippet ? (
+                                        <>
+                                            <pre className="text-xs text-gray-800 bg-white p-3 rounded border border-gray-300 overflow-x-auto whitespace-pre-wrap">
+{widgetData.embed_code_snippet}
+                                            </pre>
+                                            <button
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(widgetData.embed_code_snippet);
+                                                    setSuccess('Đã copy embed code vào clipboard!');
+                                                    setTimeout(() => setSuccess(null), 2000);
+                                                }}
+                                                className="mt-2 text-sm px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700"
+                                            >
+                                                📋 Copy to Clipboard
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <p className="text-sm text-gray-500 italic">Embed code chưa được tạo</p>
+                                    )}
+                                </div>
+                            </>
                         )}
 
                         <div>

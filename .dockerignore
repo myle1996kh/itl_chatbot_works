@@ -1,93 +1,71 @@
-# ============================================================================
-# .dockerignore - Exclude files from Docker build context
-# ============================================================================
-# This file reduces build time and image size by excluding unnecessary files
-
-# Version Control
-.git
-.gitignore
-.github
-
 # Python
-__pycache__
+__pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-.venv
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
 venv/
 ENV/
 env/
-.pytest_cache
-*.egg-info
-dist/
-build/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Frontend build (will be copied from builder stage)
+frontend/dist/
 
 # IDE
-.vscode
-.idea
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Environment files (should be passed at runtime)
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# Documentation
+README.md
+*.md
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Uploads (will be created in container)
+uploads/
+backend/uploads/
 
 # Logs
 *.log
 logs/
 
-# Environment files (security - never include in image)
-.env
-.env.*
-!.env.example
-
-# Documentation (exclude all project docs and guides)
-*.md
-!README.md
-docs/
-Documentation/
-backend/Guides/
-ARCHITECTURE_DIAGRAMS.md
-DEPLOYMENT.md
-DOCKER_*.md
-CHANGELOG_FIXES.md
-
-# Tests (exclude Bruno tests and pytest files)
-tests/
-backend/tests/
-*.test.js
-*.spec.js
-*.bru
-
-# Node modules (will be installed during build)
-node_modules/
-
-# Frontend build artifacts (will be created during build)
-frontend/dist/
-frontend/build/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
 # OS
 .DS_Store
 Thumbs.db
-
-# Temporary files
-tmp/
-temp/
-*.tmp
-
-# Coverage reports
-.coverage
-htmlcov/
-coverage/
-
-# Jupyter notebooks
-*.ipynb
-.ipynb_checkpoints
-
-# Docker
-docker-compose*.yml
-Dockerfile*
-.dockerignore

@@ -70,6 +70,8 @@ async def get_widget_config(
             enable_file_upload=widget_config.enable_file_upload,
             enable_voice_input=widget_config.enable_voice_input,
             enable_conversation_history=widget_config.enable_conversation_history,
+            embed_script_url=widget_config.embed_script_url,
+            embed_code_snippet=widget_config.embed_code_snippet,
             created_at=widget_config.created_at,
             updated_at=widget_config.updated_at,
         )
@@ -178,6 +180,8 @@ async def create_widget_config(
             enable_file_upload=widget_config.enable_file_upload,
             enable_voice_input=widget_config.enable_voice_input,
             enable_conversation_history=widget_config.enable_conversation_history,
+            embed_script_url=widget_config.embed_script_url,
+            embed_code_snippet=widget_config.embed_code_snippet,
             created_at=widget_config.created_at,
             updated_at=widget_config.updated_at,
         )
@@ -349,6 +353,8 @@ async def update_widget_config(
             enable_file_upload=widget_config.enable_file_upload,
             enable_voice_input=widget_config.enable_voice_input,
             enable_conversation_history=widget_config.enable_conversation_history,
+            embed_script_url=widget_config.embed_script_url,
+            embed_code_snippet=widget_config.embed_code_snippet,
             created_at=widget_config.created_at,
             updated_at=widget_config.updated_at,
         )
@@ -433,6 +439,8 @@ async def regenerate_widget_keys(
             enable_file_upload=widget_config.enable_file_upload,
             enable_voice_input=widget_config.enable_voice_input,
             enable_conversation_history=widget_config.enable_conversation_history,
+            embed_script_url=widget_config.embed_script_url,
+            embed_code_snippet=widget_config.embed_code_snippet,
             created_at=widget_config.created_at,
             updated_at=widget_config.updated_at,
         )

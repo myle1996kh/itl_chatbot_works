@@ -6,6 +6,8 @@ import {
     createTenant,
     updateTenant,
     deleteTenant,
+    getTenantPermissions,
+    getLLMConfig,
     TenantResponse
 } from '../../services/tenantService';
 import {
@@ -17,6 +19,13 @@ import {
 } from '../../components/icons';
 import { getJWTToken } from '../../services/authService';
 
+interface TenantDetails {
+    agents: string[];
+    tools: string[];
+    llm_model?: string;
+    llm_provider?: string;
+}
+
 const TenantManagementPage: React.FC = () => {
     const navigate = useNavigate();
     const [tenants, setTenants] = useState<TenantResponse[]>([]);
@@ -26,6 +35,9 @@ const TenantManagementPage: React.FC = () => {
     const [editingTenant, setEditingTenant] = useState<TenantResponse | null>(null);
     const [formData, setFormData] = useState({ name: '', domain: '' });
     const [submitting, setSubmitting] = useState(false);
+    const [expandedTenant, setExpandedTenant] = useState<string | null>(null);
+    const [tenantDetails, setTenantDetails] = useState<Record<string, TenantDetails>>({});
+    const [loadingDetails, setLoadingDetails] = useState<Record<string, boolean>>({});
     const token = getJWTToken();
 
     useEffect(() => {
@@ -96,6 +108,39 @@ const TenantManagementPage: React.FC = () => {
         }
     };
 
+    const toggleTenantDetails = async (tenantId: string) => {
+        if (expandedTenant === tenantId) {
+            setExpandedTenant(null);
+            return;
+        }
+
+        setExpandedTenant(tenantId);
+
+        // Load details if not already loaded
+        if (!tenantDetails[tenantId] && token) {
+            setLoadingDetails({ ...loadingDetails, [tenantId]: true });
+            try {
+                const [permissions, llmConfig] = await Promise.all([
+                    getTenantPermissions(tenantId, token).catch(() => null),
+                    getLLMConfig(tenantId, token).catch(() => null)
+                ]);
+
+                const details: TenantDetails = {
+                    agents: permissions?.enabled_agents?.map((a: any) => a.name || a.agent_name) || [],
+                    tools: permissions?.enabled_tools?.map((t: any) => t.name || t.tool_name) || [],
+                    llm_model: llmConfig?.model_name,
+                    llm_provider: llmConfig?.provider
+                };
+
+                setTenantDetails({ ...tenantDetails, [tenantId]: details });
+            } catch (err) {
+                console.error('Failed to load tenant details:', err);
+            } finally {
+                setLoadingDetails({ ...loadingDetails, [tenantId]: false });
+            }
+        }
+    };
+
     return (
         <AdminLayout>
             <div className="p-6">
@@ -132,7 +177,7 @@ const TenantManagementPage: React.FC = () => {
                     </div>
                 )}
 
-                <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+                <div className="bg-white shadow overflow-hidden overflow-x-auto sm:rounded-lg">
                     {loading ? (
                         <div className="p-6 text-center text-gray-500">Loading tenants...</div>
                     ) : tenants.length === 0 ? (
@@ -160,40 +205,98 @@ const TenantManagementPage: React.FC = () => {
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {tenants.map((tenant) => (
-                                    <tr key={tenant.tenant_id}>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm font-medium text-gray-900">{tenant.name}</div>
-                                            <div className="text-xs text-gray-500">{tenant.tenant_id}</div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm text-gray-500">{tenant.domain}</div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${tenant.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                                                }`}>
-                                                {tenant.status}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {tenant.created_at ? new Date(tenant.created_at).toLocaleDateString() : '-'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            <button
-                                                onClick={() => navigate(`/admin/tenants/${tenant.tenant_id}/settings`)}
-                                                className="text-gray-600 hover:text-gray-900 mr-4"
-                                                title="Cấu hình tenant"
-                                            >
-                                                <Cog6ToothIcon className="h-5 w-5" />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDelete(tenant.tenant_id)}
-                                                className="text-red-600 hover:text-red-900"
-                                                title="Xóa tenant"
-                                            >
-                                                <TrashIcon className="h-5 w-5" />
-                                            </button>
-                                        </td>
-                                    </tr>
+                                    <React.Fragment key={tenant.tenant_id}>
+                                        <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => toggleTenantDetails(tenant.tenant_id)}>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <div className="flex items-center">
+                                                    <span className="mr-2 text-gray-400">
+                                                        {expandedTenant === tenant.tenant_id ? '▼' : '▶'}
+                                                    </span>
+                                                    <div>
+                                                        <div className="text-sm font-medium text-gray-900">{tenant.name}</div>
+                                                        <div className="text-xs text-gray-500">{tenant.tenant_id}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <div className="text-sm text-gray-500">{tenant.domain}</div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${tenant.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                                    }`}>
+                                                    {tenant.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {tenant.created_at ? new Date(tenant.created_at).toLocaleDateString() : '-'}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                    onClick={() => navigate(`/admin/tenants/${tenant.tenant_id}/settings`)}
+                                                    className="text-gray-600 hover:text-gray-900 mr-4"
+                                                    title="Cấu hình tenant"
+                                                >
+                                                    <Cog6ToothIcon className="h-5 w-5" />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(tenant.tenant_id)}
+                                                    className="text-red-600 hover:text-red-900"
+                                                    title="Xóa tenant"
+                                                >
+                                                    <TrashIcon className="h-5 w-5" />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        {expandedTenant === tenant.tenant_id && (
+                                            <tr>
+                                                <td colSpan={5} className="px-6 py-4 bg-gray-50">
+                                                    {loadingDetails[tenant.tenant_id] ? (
+                                                        <div className="text-sm text-gray-500">Loading configuration...</div>
+                                                    ) : tenantDetails[tenant.tenant_id] ? (
+                                                        <div className="grid grid-cols-3 gap-4">
+                                                            <div>
+                                                                <h4 className="text-xs font-semibold text-gray-700 mb-2">🤖 Agents ({tenantDetails[tenant.tenant_id].agents.length})</h4>
+                                                                {tenantDetails[tenant.tenant_id].agents.length > 0 ? (
+                                                                    <ul className="text-xs text-gray-600 space-y-1">
+                                                                        {tenantDetails[tenant.tenant_id].agents.map((agent, idx) => (
+                                                                            <li key={idx}>• {agent}</li>
+                                                                        ))}
+                                                                    </ul>
+                                                                ) : (
+                                                                    <p className="text-xs text-gray-400 italic">No agents configured</p>
+                                                                )}
+                                                            </div>
+                                                            <div>
+                                                                <h4 className="text-xs font-semibold text-gray-700 mb-2">🔧 Tools ({tenantDetails[tenant.tenant_id].tools.length})</h4>
+                                                                {tenantDetails[tenant.tenant_id].tools.length > 0 ? (
+                                                                    <ul className="text-xs text-gray-600 space-y-1">
+                                                                        {tenantDetails[tenant.tenant_id].tools.map((tool, idx) => (
+                                                                            <li key={idx}>• {tool}</li>
+                                                                        ))}
+                                                                    </ul>
+                                                                ) : (
+                                                                    <p className="text-xs text-gray-400 italic">No tools configured</p>
+                                                                )}
+                                                            </div>
+                                                            <div>
+                                                                <h4 className="text-xs font-semibold text-gray-700 mb-2">🧠 LLM Model</h4>
+                                                                {tenantDetails[tenant.tenant_id].llm_provider && tenantDetails[tenant.tenant_id].llm_model ? (
+                                                                    <div className="text-xs text-gray-600">
+                                                                        <p><span className="font-medium">Provider:</span> {tenantDetails[tenant.tenant_id].llm_provider}</p>
+                                                                        <p className="mt-1"><span className="font-medium">Model:</span> {tenantDetails[tenant.tenant_id].llm_model}</p>
+                                                                    </div>
+                                                                ) : (
+                                                                    <p className="text-xs text-gray-400 italic">No LLM configured</p>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-sm text-gray-500">No configuration data available</div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </React.Fragment>
                                 ))}
                             </tbody>
                         </table>

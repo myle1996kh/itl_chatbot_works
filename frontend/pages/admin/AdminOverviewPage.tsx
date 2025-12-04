@@ -40,7 +40,7 @@ const AdminOverviewPage: React.FC = () => {
                 const baseUrl = getApiBaseUrl();
                 for (const tenant of tenants) {
                     const response = await fetch(
-                        `${baseUrl}/api/admin/tenants/${tenant.id}/escalations?status=pending`,
+                        `${baseUrl}/api/admin/tenants/${tenant.tenant_id}/escalations?status=pending`,
                         {
                             headers: {
                                 'Authorization': `Bearer ${jwtToken}`,

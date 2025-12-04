@@ -50,8 +50,8 @@ const UserInfoForm: React.FC<UserInfoFormProps> = ({ tenant, onSubmit, loading, 
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4 text-gray-400">
             <UserCircleIcon className="w-10 h-10" />
           </div>
-          <h3 className="text-gray-800 font-semibold text-lg">Vui lòng cho chúng tôi biết thông tin của bạn</h3>
-          <p className="text-gray-500 text-sm">Để bắt đầu trò chuyện, vui lòng điền thông tin.</p>
+          <h3 className="text-gray-800 font-semibold text-lg">Chào bạn!</h3>
+          <p className="text-gray-500 text-sm">Để bắt đầu trò chuyện, vui lòng điền thêm thông tin.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
