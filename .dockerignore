@@ -27,7 +27,7 @@
 !/frontend/src
 !/frontend/public
 !/frontend/index.html
-!/frontend/assets
+
 
 # But ignore frontend development files
 /frontend/node_modules

@@ -11,7 +11,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-chatbot}
       POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-CHANGE_THIS_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Postgres123!}
       POSTGRES_INITDB_ARGS: "-E UTF8"
       # Performance tuning
       POSTGRES_SHARED_BUFFERS: 256MB
@@ -19,10 +19,10 @@ services:
       POSTGRES_WORK_MEM: 16MB
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data
-      # Initialize pgvector extension (mount directory of SQL/scripts)
-      - ./init-db.sql:/docker-entrypoint-initdb.d
+      # Initialize pgvector extension
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     ports:
-      - "${DB_PORT:-32001}:5432"
+      - "${DB_PORT:-32001}:32001"
     networks:
       - itl_network
     healthcheck:
@@ -58,7 +58,6 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      target: builder  # Use builder stage for development
     container_name: itl_chatbot_backend_dev
     restart: unless-stopped
     depends_on:
@@ -66,11 +65,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    env_file:
-      - ./backend/.env
     environment:
       # Database
-      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-CHANGE_THIS_PASSWORD}@postgres:5432/${DB_NAME:-chatbot}
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-Postgres123!}@host.docker.internal:32001/${DB_NAME:-chatbot}
       DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
 
@@ -90,7 +87,7 @@ services:
       API_PORT: 8000
 
       # CORS
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3000}
 
       # Rate Limiting
       DEFAULT_RATE_LIMIT_RPM: ${DEFAULT_RATE_LIMIT_RPM:-60}
@@ -106,7 +103,6 @@ services:
     volumes:
       # Mount backend source for hot-reload
       - ./backend/src:/app/src
-      - ./backend/uv.lock:/app/uv.lock
       - ./backend/pyproject.toml:/app/pyproject.toml
       # Mount JWT private key (read-only)
       - ./jwt_private.pem:/app/jwt_private.pem:ro
@@ -117,9 +113,6 @@ services:
 
     ports:
       - "${API_PORT:-8000}:8000"
-
-    # Run the development server with autoreload inside the container
-    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
     networks:
       - itl_network
@@ -144,7 +137,7 @@ services:
       - ./frontend:/app
       - /app/node_modules  # Don't mount node_modules to avoid conflicts
     ports:
-      - "3000:3000"  # Vite configured to run on port 3000 in `vite.config.ts`
+      - "3000:3000"  # Vite default port
     environment:
       - NODE_ENV=development
     networks:
