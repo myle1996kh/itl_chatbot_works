@@ -12,7 +12,9 @@
       "Bash(ver:*)",
       "Bash(cmd /c echo Testing CMD)",
       "Bash(mkdir:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

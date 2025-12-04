@@ -179,14 +179,23 @@ const TenantManagementPage: React.FC = () => {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                             <button
+                                                onClick={() => navigate(`/admin/tenants/${tenant.tenant_id}/settings`)}
+                                                className="text-gray-600 hover:text-gray-900 mr-4"
+                                                title="Cấu hình tenant"
+                                            >
+                                                <Cog6ToothIcon className="h-5 w-5" />
+                                            </button>
+                                            <button
                                                 onClick={() => handleOpenModal(tenant)}
                                                 className="text-indigo-600 hover:text-indigo-900 mr-4"
+                                                title="Sửa tên/domain"
                                             >
                                                 <PencilIcon className="h-5 w-5" />
                                             </button>
                                             <button
                                                 onClick={() => handleDelete(tenant.tenant_id)}
                                                 className="text-red-600 hover:text-red-900"
+                                                title="Xóa tenant"
                                             >
                                                 <TrashIcon className="h-5 w-5" />
                                             </button>

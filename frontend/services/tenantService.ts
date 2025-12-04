@@ -95,15 +95,22 @@ export async function getTenants(): Promise<TenantResponse[]> {
  * @param tenantId - UUID of the tenant
  * @returns TenantResponse
  */
-export async function getTenant(tenantId: string): Promise<TenantResponse | null> {
+export async function getTenant(tenantId: string, token?: string): Promise<TenantResponse | null> {
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    // Add Authorization header if token is provided
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const response = await fetch(
       `${API_BASE_URL}/api/admin/tenants/${tenantId}`,
       {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
       }
     );
 
@@ -305,6 +312,181 @@ export async function updateTenantPermissions(
 
   if (!response.ok) {
     throw new Error(`Failed to update tenant permissions: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+// ============================================================================
+// WIDGET CONFIGURATION
+// ============================================================================
+
+export interface WidgetConfig {
+  config_id: string;
+  tenant_id: string;
+  widget_key: string;
+  theme: string;
+  primary_color: string;
+  position: string;
+  custom_css?: string;
+  auto_open: boolean;
+  welcome_message: string;
+  placeholder_text: string;
+  allowed_domains: string[];
+  max_session_duration?: number;
+  rate_limit_per_minute?: number;
+  enable_file_upload: boolean;
+  enable_voice_input: boolean;
+  enable_conversation_history: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WidgetConfigUpdate {
+  theme?: string;
+  primary_color?: string;
+  position?: string;
+  custom_css?: string;
+  auto_open?: boolean;
+  welcome_message?: string;
+  placeholder_text?: string;
+  allowed_domains?: string[];
+  max_session_duration?: number;
+  rate_limit_per_minute?: number;
+  enable_file_upload?: boolean;
+  enable_voice_input?: boolean;
+  enable_conversation_history?: boolean;
+}
+
+/**
+ * Get widget configuration for a tenant
+ */
+export async function getWidgetConfig(tenantId: string, token: string): Promise<WidgetConfig> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants/${tenantId}/widget`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('Widget configuration not found');
+    }
+    throw new Error(`Failed to fetch widget config: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Update widget configuration for a tenant
+ */
+export async function updateWidgetConfig(
+  tenantId: string,
+  data: WidgetConfigUpdate,
+  token: string
+): Promise<WidgetConfig> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants/${tenantId}/widget`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update widget config: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Create widget configuration for a tenant (if not exists)
+ */
+export async function createWidgetConfig(tenantId: string, token: string): Promise<WidgetConfig> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants/${tenantId}/widget`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to create widget config: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+// ============================================================================
+// LLM CONFIGURATION
+// ============================================================================
+
+export interface LLMConfig {
+  config_id: string;
+  tenant_id: string;
+  llm_model_id: string;
+  provider: string;
+  model_name: string;
+  rate_limit_rpm: number;
+  rate_limit_tpm: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LLMConfigUpdate {
+  api_key?: string;
+  rate_limit_rpm?: number;
+  rate_limit_tpm?: number;
+}
+
+/**
+ * Get LLM configuration for a tenant
+ */
+export async function getLLMConfig(tenantId: string, token: string): Promise<LLMConfig> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants/${tenantId}/llm-config`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('LLM configuration not found');
+    }
+    throw new Error(`Failed to fetch LLM config: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Update LLM configuration for a tenant
+ */
+export async function updateLLMConfig(
+  tenantId: string,
+  data: LLMConfigUpdate,
+  token: string
+): Promise<LLMConfig> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/tenants/${tenantId}/llm-config`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update LLM config: ${response.status}`);
   }
 
   return await response.json();

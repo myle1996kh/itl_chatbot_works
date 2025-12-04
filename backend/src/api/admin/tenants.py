@@ -27,6 +27,30 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin-tenants"])
 
 
+# Request/Response schemas for LLM Config
+class TenantLLMConfigResponse(BaseModel):
+    """Tenant LLM configuration response."""
+    config_id: str
+    tenant_id: str
+    llm_model_id: str
+    provider: str
+    model_name: str
+    rate_limit_rpm: int
+    rate_limit_tpm: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TenantLLMConfigUpdateRequest(BaseModel):
+    """Update tenant LLM configuration."""
+    api_key: Optional[str] = Field(None, description="New API key - will be encrypted")
+    rate_limit_rpm: Optional[int] = Field(None, ge=1, le=10000)
+    rate_limit_tpm: Optional[int] = Field(None, ge=1, le=1000000)
+
+
 # Request/Response schemas for Tenant CRUD
 class TenantCreateRequest(BaseModel):
     """Create tenant request."""
@@ -759,3 +783,191 @@ async def create_tenant_full(
         db.rollback()
         logger.error("create_tenant_full_error", admin_user=admin_payload.get("user_id"), error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to create tenant: {str(e)}")
+
+
+# ============================================================================
+# TENANT LLM CONFIG ENDPOINTS
+# ============================================================================
+
+@router.get(
+    "/tenants/{tenant_id}/llm-config",
+    response_model=TenantLLMConfigResponse
+)
+async def get_tenant_llm_config(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> TenantLLMConfigResponse:
+    """
+    Get LLM configuration for a tenant.
+
+    Requires admin role in JWT.
+
+    Args:
+        tenant_id: Tenant UUID
+
+    Returns:
+        TenantLLMConfigResponse with LLM configuration (API key is NOT returned)
+    """
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+
+        # Get LLM config with joined LLM model data
+        llm_config = db.query(TenantLLMConfig).filter(
+            TenantLLMConfig.tenant_id == tenant_uuid
+        ).first()
+
+        if not llm_config:
+            raise HTTPException(
+                status_code=404,
+                detail="LLM configuration not found for this tenant"
+            )
+
+        # Get LLM model details
+        llm_model = db.query(LLMModel).filter(
+            LLMModel.llm_model_id == llm_config.llm_model_id
+        ).first()
+
+        if not llm_model:
+            raise HTTPException(
+                status_code=500,
+                detail="LLM model reference is broken"
+            )
+
+        logger.info(
+            "llm_config_retrieved",
+            admin_user=admin_payload.get("sub"),
+            tenant_id=tenant_id
+        )
+
+        return TenantLLMConfigResponse(
+            config_id=str(llm_config.config_id),
+            tenant_id=str(llm_config.tenant_id),
+            llm_model_id=str(llm_config.llm_model_id),
+            provider=llm_model.provider,
+            model_name=llm_model.model_name,
+            rate_limit_rpm=llm_config.rate_limit_rpm,
+            rate_limit_tpm=llm_config.rate_limit_tpm,
+            created_at=llm_config.created_at,
+            updated_at=llm_config.updated_at,
+        )
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid tenant UUID format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "get_llm_config_error",
+            tenant_id=tenant_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get LLM config: {str(e)}"
+        )
+
+
+@router.patch(
+    "/tenants/{tenant_id}/llm-config",
+    response_model=TenantLLMConfigResponse
+)
+async def update_tenant_llm_config(
+    tenant_id: str = Path(..., description="Tenant UUID"),
+    request: TenantLLMConfigUpdateRequest = ...,
+    db: Session = Depends(get_db),
+    admin_payload: dict = Depends(require_admin_role),
+) -> TenantLLMConfigResponse:
+    """
+    Update LLM configuration for a tenant.
+
+    Only rate limits and API key can be updated.
+    To change provider/model, create a new tenant.
+
+    Requires admin role in JWT.
+
+    Args:
+        tenant_id: Tenant UUID
+        request: TenantLLMConfigUpdateRequest with fields to update
+
+    Returns:
+        TenantLLMConfigResponse with updated configuration
+    """
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+
+        # Get existing config
+        llm_config = db.query(TenantLLMConfig).filter(
+            TenantLLMConfig.tenant_id == tenant_uuid
+        ).first()
+
+        if not llm_config:
+            raise HTTPException(
+                status_code=404,
+                detail="LLM configuration not found for this tenant"
+            )
+
+        # Update fields
+        updated_fields = []
+
+        if request.api_key is not None:
+            llm_config.encrypted_api_key = encrypt_api_key(request.api_key)
+            updated_fields.append("api_key")
+
+        if request.rate_limit_rpm is not None:
+            llm_config.rate_limit_rpm = request.rate_limit_rpm
+            updated_fields.append("rate_limit_rpm")
+
+        if request.rate_limit_tpm is not None:
+            llm_config.rate_limit_tpm = request.rate_limit_tpm
+            updated_fields.append("rate_limit_tpm")
+
+        if not updated_fields:
+            raise HTTPException(
+                status_code=400,
+                detail="No fields to update"
+            )
+
+        llm_config.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(llm_config)
+
+        # Get LLM model details for response
+        llm_model = db.query(LLMModel).filter(
+            LLMModel.llm_model_id == llm_config.llm_model_id
+        ).first()
+
+        logger.info(
+            "llm_config_updated",
+            admin_user=admin_payload.get("sub"),
+            tenant_id=tenant_id,
+            updated_fields=updated_fields
+        )
+
+        return TenantLLMConfigResponse(
+            config_id=str(llm_config.config_id),
+            tenant_id=str(llm_config.tenant_id),
+            llm_model_id=str(llm_config.llm_model_id),
+            provider=llm_model.provider,
+            model_name=llm_model.model_name,
+            rate_limit_rpm=llm_config.rate_limit_rpm,
+            rate_limit_tpm=llm_config.rate_limit_tpm,
+            created_at=llm_config.created_at,
+            updated_at=llm_config.updated_at,
+        )
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid tenant UUID format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "update_llm_config_error",
+            tenant_id=tenant_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update LLM config: {str(e)}"
+        )

@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage';
 import AdminOverviewPage from './pages/admin/AdminOverviewPage';
 import TenantManagementPage from './pages/admin/TenantManagementPage';
 import TenantSetupWizard from './pages/admin/TenantSetupWizard';
+import TenantSettingsPage from './pages/admin/TenantSettingsPage';
 import UserManagement from './pages/admin/UserManagement';
 import ChatManagementPage from './pages/admin/ChatManagementPage';
 import KnowledgeBasePage from './pages/admin/KnowledgeBasePage';
@@ -61,6 +62,14 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute requiredRole="admin">
               <TenantSetupWizard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/tenants/:tenantId/settings"
+          element={
+            <ProtectedRoute requiredRole="admin">
+              <TenantSettingsPage />
             </ProtectedRoute>
           }
         />
