@@ -3,11 +3,12 @@ import { Tenant, UserInfo, Message, SessionSummary } from '../types';
 import { sendMessage, getApiBaseUrl } from '../services/chatService';
 import { escalateSessionPublic } from '../services/escalationService';
 import { getUserSessions, getSessionDetailPublic } from '../services/sessionService';
-import { XMarkIcon, ClockIcon } from './icons';
-import MessageList from './shared/MessageList';
+import { XMarkIcon, ClockIcon, SparklesIcon, UserCircleIcon } from './icons';
 import MessageInput from './shared/MessageInput';
 import EscalationDialog from './shared/EscalationDialog';
 import { AVAILABLE_AGENTS, AgentName } from '../src/config/topic-agent-mapping';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface EmbeddedWidgetProps {
     tenant: Tenant;
@@ -181,6 +182,91 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
+    // ============================================================================
+    // DEBT RENDERING HELPERS
+    // ============================================================================
+
+    // Format currency for Vietnamese locale
+    const formatCurrency = (value: number): string => {
+        return new Intl.NumberFormat('vi-VN').format(value || 0);
+    };
+
+    // Detect if message contains debt JSON response
+    const isDebtResponse = (text: string): boolean => {
+        // Check for debt-specific fields in the text
+        const hasDebtFields = text.includes('customerName') ||
+            text.includes('salesmanName') ||
+            text.includes('debitAmount') ||
+            text.includes('creditLimit');
+
+        // If we have debt-specific fields, it's a debt response
+        if (hasDebtFields) {
+            // Additional check: make sure it also appears to contain JSON structure
+            const hasJsonArray = text.includes('[') && text.includes(']');
+            const hasJsonObject = text.includes('{') && text.includes('}');
+
+            return (hasJsonArray || hasJsonObject) && hasDebtFields;
+        }
+
+        // Fallback: check if it has the old format with "Entity đã nhận diện"
+        if (text.includes('Entity đã nhận diện')) {
+            const hasJsonArray = text.includes('[') && text.includes(']');
+            const hasJsonObject = text.includes('{') && text.includes('}');
+            return (hasJsonArray || hasJsonObject) && hasDebtFields;
+        }
+
+        return false;
+    };
+
+    // Parse debt data from message text
+    const parseDebtData = (text: string): any => {
+        try {
+            // First check if the message starts with "Entity đã nhận diện: " and extract just the JSON part
+            if (text.includes('Entity đã nhận diện:')) {
+                // Extract content after the "Entity đã nhận diện: MST" line
+                const jsonStartIndex = text.indexOf('\n');
+                if (jsonStartIndex !== -1) {
+                    const jsonPart = text.substring(jsonStartIndex + 1).trim();
+                    // Parse the JSON part that contains the actual data
+                    const parsed = JSON.parse(jsonPart);
+
+                    // Check if it's wrapped in {"output": "..."} format
+                    if (parsed.output) {
+                        // The output field contains a stringified JSON, need to parse again
+                        if (typeof parsed.output === 'string') {
+                            // Replace Python-style single quotes with double quotes
+                            const fixedJson = parsed.output.replace(/'/g, '"');
+                            return JSON.parse(fixedJson);
+                        }
+                        return parsed.output;
+                    }
+                    return parsed;
+                }
+            } else {
+                // If no "Entity đã nhận diện" prefix, try to parse the entire text
+                const jsonMatch = text.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    const parsed = JSON.parse(jsonMatch[0]);
+
+                    // Check if it's wrapped in {"output": "..."} format
+                    if (parsed.output) {
+                        // The output field contains a stringified JSON, need to parse again
+                        if (typeof parsed.output === 'string') {
+                            // Replace Python-style single quotes with double quotes
+                            const fixedJson = parsed.output.replace(/'/g, '"');
+                            return JSON.parse(fixedJson);
+                        }
+                        return parsed.output;
+                    }
+                    return parsed;
+                }
+            }
+        } catch (e) {
+            console.error('Failed to parse debt data:', e);
+        }
+        return null;
+    };
+
     const handleSendMessage = async () => {
         if ((!input.trim() && !attachedFile) || isTyping) return;
 
@@ -208,15 +294,146 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                 agentName: selectedAgent || undefined,
             });
 
+            // Prefer showing only the textual content from the agent response
+            const pickDisplayText = (data: any): string => {
+                if (!data) return '';
+                if (typeof data === 'string') {
+                    let raw = data.trim();
+
+                    // Check if string contains "Entity đã nhận diện: " prefix followed by JSON
+                    if (raw.includes('Entity đã nhận diện:')) {
+                        // Extract content after the prefix line
+                        const jsonStartIndex = raw.indexOf('\n');
+                        if (jsonStartIndex !== -1) {
+                            // Get the JSON part after the newline
+                            const jsonPart = raw.substring(jsonStartIndex + 1).trim();
+
+                            // If jsonPart is a JSON string with output field, process it
+                            if (jsonPart.startsWith('{') && jsonPart.endsWith('}')) {
+                                try {
+                                    const parsed = JSON.parse(jsonPart);
+                                    if (parsed.output) {
+                                        if (typeof parsed.output === 'string') {
+                                            // Replace Python-style single quotes with double quotes
+                                            const fixedJson = parsed.output.replace(/'/g, '"');
+                                            return fixedJson;
+                                        }
+                                        // If output is an object/array, stringify it for further processing
+                                        return JSON.stringify(parsed.output);
+                                    }
+                                    return JSON.stringify(parsed);
+                                } catch {
+                                    // If JSON parsing fails, return the JSON part
+                                    return jsonPart;
+                                }
+                            }
+                            // If it's not a JSON object, but just the JSON part after the prefix
+                            return jsonPart;
+                        }
+                        // If no newline found, return the original string without the prefix
+                        return raw.replace(/Entity đã nhận diện:.*$/, '').trim();
+                    }
+
+                    // Original logic for other formats
+                    if ((raw.startsWith('{') && raw.endsWith('}')) || (raw.startsWith('[') && raw.endsWith(']'))) {
+                        try {
+                            const parsed = JSON.parse(raw);
+                            data = parsed;
+                        } catch {
+                            // Extract text from JSON-like strings as last resort
+                            const dq = Array.from(raw.matchAll(/\"text\"\s*:\s*\"([\s\S]*?)\"/g)).map(m => m[1]);
+                            if (dq.length) return dq.join('\n\n');
+                            const sq = Array.from(raw.matchAll(/'text'\s*:\s*'([\s\S]*?)'/g)).map(m => m[1]);
+                            if (sq.length) return sq.join('\n\n');
+                        }
+                    } else {
+                        return raw;
+                    }
+                }
+                // If the payload itself is an array of segments, extract text parts
+                if (Array.isArray(data)) {
+                    const texts = data
+                        .map((item: any) => {
+                            if (!item) return null;
+                            if (typeof item === 'string') return item;
+                            if (typeof item.text === 'string') return item.text;
+                            if (typeof item.content === 'string') return item.content;
+                            return null;
+                        })
+                        .filter(Boolean) as string[];
+                    if (texts.length) return texts.join('\n\n');
+                }
+
+                // Helper to extract text from common nested response shapes
+                const extractFromResponse = (resp: any): string | null => {
+                    if (!resp) return null;
+                    if (Array.isArray(resp)) {
+                        const texts = resp
+                            .map((item: any) => {
+                                if (!item) return null;
+                                if (typeof item === 'string') return item;
+                                if (typeof item.text === 'string') return item.text;
+                                if (typeof item.content === 'string') return item.content;
+                                return null;
+                            })
+                            .filter(Boolean) as string[];
+                        if (texts.length) return texts.join('\n\n');
+                        return null;
+                    }
+                    if (typeof resp === 'object') {
+                        if (typeof resp.text === 'string') return resp.text;
+                        if (typeof resp.content === 'string') return resp.content;
+                    }
+                    return null;
+                };
+
+                // Handle structures like { response: [ { type: 'text', text: '...' } ] }
+                const nestedFromResponse = extractFromResponse((data as any).response);
+                if (nestedFromResponse) return nestedFromResponse;
+
+                // Handle { outputs: [...] } or { output: { text: ... } }
+                const fromOutputs =
+                    extractFromResponse((data as any).outputs) ||
+                    extractFromResponse((data as any).output);
+                if (fromOutputs) return fromOutputs;
+
+                // Flat candidates
+                const candidates = [
+                    (data as any).text,
+                    (data as any).content,
+                    (data as any).message,
+                    (data as any).answer,
+                    (data as any)?.output?.text,
+                    (data as any)?.output?.content,
+                ];
+                for (const c of candidates) {
+                    if (typeof c === 'string' && c.trim()) return c;
+                }
+                // Fallback: stringify (kept for debugging; can be replaced with empty string)
+                return JSON.stringify(data, null, 2);
+            };
+
+            // Some agents return response as an array under data.response, others
+            // wrap it directly on data. Pass the whole payload and let the picker
+            // extract from either shape (including arrays).
+            const aiResponseText = pickDisplayText(response.data);
+
             const aiMessage: Message = {
                 id: `ai-${Date.now() + 1}`,
-                text: response.success && response.data?.response?.text || 'Sorry, error occurred.',
+                text: response.success ? aiResponseText : (response.error || 'Sorry, I encountered an error. Please try again.'),
                 sender: 'ai',
                 timestamp: new Date().toISOString(),
             };
             setMessages((prev) => [...prev, aiMessage]);
         } catch (error) {
             console.error('Send error:', error);
+            const errorMessage: Message = {
+                id: `ai-${Date.now() + 1}`,
+                text: "Sorry, I encountered an error. Please try again.",
+                sender: 'ai',
+                timestamp: new Date().toISOString(),
+            };
+            setMessages((prev) => [...prev, errorMessage]);
         } finally {
             setIsTyping(false);
         }
@@ -342,6 +559,111 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
         }
     };
 
+    // ============================================================================
+    // DEBT CARD COMPONENTS
+    // ============================================================================
+
+    // Customer Debt Card Component
+    const CustomerDebtCard = ({ data }: { data: any }) => (
+        <div style={{
+            background: 'white',
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+            padding: '12px',
+            maxWidth: '400px',
+            fontSize: '13px'
+        }}>
+            {/* Header */}
+            <div style={{ borderBottom: `2px solid ${primaryColor}`, paddingBottom: '8px', marginBottom: '12px' }}>
+                <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>📊 Thông tin công nợ khách hàng</h4>
+            </div>
+
+            {/* Customer Info */}
+            <div style={{ marginBottom: '12px' }}>
+                <p style={{ margin: '4px 0' }}><strong>Khách hàng:</strong> {data.customerName || 'N/A'}</p>
+                <p style={{ margin: '4px 0' }}><strong>MST:</strong> {data.taxCode || data.customerTaxCode || 'N/A'}</p>
+                <p style={{ margin: '4px 0' }}><strong>Nhân viên Sales:</strong> {data.salesmanName || 'N/A'}</p>
+                <p style={{ margin: '4px 0' }}><strong>Loại hợp đồng:</strong> {data.contractType || 'N/A'}</p>
+            </div>
+
+            {/* Financial Info */}
+            <div style={{ marginBottom: '12px' }}>
+                <h5 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>💰 Thông tin tài chính</h5>
+                <table style={{ width: '100%', fontSize: '13px' }}>
+                    <tbody>
+                        <tr><td style={{ padding: '4px 0' }}>Hạn mức tín dụng</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.creditLimit)} VND</td></tr>
+                        <tr><td style={{ padding: '4px 0' }}>Số dư nợ hiện tại</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.debitAmount)} VND</td></tr>
+                        <tr><td style={{ padding: '4px 0' }}>Đã thanh toán</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.paidAmount || data.paid)} VND</td></tr>
+                        <tr><td style={{ padding: '4px 0' }}>Dư nợ</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.billingUnpaid || data.outstanding)} VND</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Overdue Analysis */}
+            <div>
+                <h5 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>⚠️ Phân tích quá hạn</h5>
+                <table style={{ width: '100%', fontSize: '13px' }}>
+                    <tbody>
+                        <tr><td style={{ padding: '4px 0' }}>Tổng nợ quá hạn</td><td style={{ textAlign: 'right', fontWeight: 500, color: '#ef4444' }}>{formatCurrency(data.overAmount)} VND</td></tr>
+                        <tr><td style={{ padding: '4px 0' }}>1-15 ngày</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.over1To15Day || data.over1to15)} VND</td></tr>
+                        <tr><td style={{ padding: '4px 0' }}>16-30 ngày</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.over16To30Day || data.over16to30)} VND</td></tr>
+                        <tr><td style={{ padding: '4px 0' }}>Trên 30 ngày</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.over30Day || data.over30)} VND</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+
+    // Salesman Debt Card Component
+    const SalesmanDebtCard = ({ data }: { data: any[] }) => {
+        const salesmanName = data[0]?.salesmanName || 'Unknown';
+        const totalCustomers = data.length;
+        const totalDebt = data.reduce((sum, item) => sum + (item.debitAmount || 0), 0);
+
+        return (
+            <div style={{
+                background: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                padding: '12px',
+                maxWidth: '400px',
+                fontSize: '13px'
+            }}>
+                {/* Summary Header */}
+                <div style={{
+                    background: '#f8f9fa',
+                    padding: '10px',
+                    borderRadius: '6px',
+                    marginBottom: '12px'
+                }}>
+                    <h4 style={{ margin: '0 0 6px 0', fontSize: '15px' }}>👤 Sales: {salesmanName}</h4>
+                    <p style={{ margin: '4px 0' }}><strong>Số khách hàng:</strong> {totalCustomers}</p>
+                    <p style={{ margin: '4px 0' }}>
+                        <strong>Tổng công nợ:</strong>{' '}
+                        <span style={{ color: totalDebt > 0 ? '#ef4444' : '#10b981', fontWeight: 600 }}>
+                            {formatCurrency(totalDebt)} VND
+                        </span>
+                    </p>
+                </div>
+
+                {/* Customer List */}
+                {data.map((item, idx) => (
+                    <div key={idx}>
+                        {idx > 0 && <hr style={{ border: 'none', borderTop: '1px solid #eee', margin: '10px 0' }} />}
+                        <div style={{ margin: '8px 0' }}>
+                            <strong>{item.customerName} - {item.salesmanName} - {item.contractType}</strong>
+                            <ul style={{ margin: '6px 0 0 18px', fontSize: '13px' }}>
+                                <li>Công nợ: {formatCurrency(item.debitAmount)} VND</li>
+                                <li>Hạn mức: {formatCurrency(item.creditLimit)} VND</li>
+                                <li>Tỷ lệ vượt hạn mức: {(item.debitRate || 0).toFixed(2)}</li>
+                            </ul>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
     const primaryColor = tenant.theme.primaryColor;
 
     return (
@@ -428,7 +750,105 @@ const EmbeddedWidget: React.FC<EmbeddedWidgetProps> = ({
                 </div>
             )}
 
-            <MessageList messages={messages} primaryColor={primaryColor} isTyping={isTyping} messagesEndRef={messagesEndRef} />
+            {/* Custom Message List with Debt Card Support */}
+            <div className="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4">
+                {messages.map((msg) => {
+                    // Check if this is a debt response from AI
+                    const isDebt = msg.sender === 'ai' && isDebtResponse(msg.text);
+                    const debtData = isDebt ? parseDebtData(msg.text) : null;
+
+                    // Determine if customer or salesman debt
+                    const isCustomerDebt = debtData && !Array.isArray(debtData);
+                    const isSalesmanDebt = debtData && Array.isArray(debtData);
+
+                    return (
+                        <div key={msg.id} className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            {msg.sender !== 'user' && (
+                                <div
+                                    className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center"
+                                    style={{ backgroundColor: msg.sender === 'ai' ? primaryColor : '#9CA3AF' }}
+                                >
+                                    <SparklesIcon className="h-5 w-5 text-white" />
+                                </div>
+                            )}
+
+                            {/* Render custom debt card if detected, otherwise normal message */}
+                            {isCustomerDebt ? (
+                                <CustomerDebtCard data={debtData} />
+                            ) : isSalesmanDebt ? (
+                                <SalesmanDebtCard data={debtData} />
+                            ) : (
+                                <div
+                                    className={`rounded-lg px-3 py-2 max-w-xs shadow-sm ${msg.sender === 'user' ? 'text-white' : 'bg-white text-gray-800'}`}
+                                    style={msg.sender === 'user' ? { backgroundColor: primaryColor, color: 'white' } : {}}
+                                >
+                                    {msg.sender === 'supporter' && <div className="font-bold text-xs mb-1 text-green-600">{msg.supporterName}</div>}
+                                    {msg.fileInfo && (
+                                        <div className="text-xs font-mono p-2 bg-black/10 rounded-md mb-2">
+                                            Attached: {msg.fileInfo.name}
+                                        </div>
+                                    )}
+                                    <div
+                                        className="prose prose-sm max-w-none markdown-content"
+                                        style={{
+                                            whiteSpace: 'pre-wrap',
+                                        }}
+                                    >
+                                        <style>{`
+                                        .markdown-content p { margin: 0.3em 0; }
+                                        .markdown-content p.nguon { font-style: italic; }
+                                        .markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { margin: 0.2em 0; font-weight: bold; }
+                                        .markdown-content h1 { font-size: 1.8em; }
+                                        .markdown-content h2 { font-size: 1.4em; }
+                                        .markdown-content h3 { font-size: 1.15em; }
+                                        .markdown-content ul, .markdown-content ol { margin: 0.3em 0; padding-left: 1.5em; }
+                                        .markdown-content ul { list-style-type: disc; }
+                                        .markdown-content ol { list-style-type: decimal; }
+                                        .markdown-content li { margin: 0.1em 0; }
+                                        .markdown-content code { background-color: rgba(0,0,0,0.05); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; }
+                                        .markdown-content pre { background-color: #f6f8fa; padding: 1em; border-radius: 6px; overflow-x: auto; font-family: monospace; }
+                                        .markdown-content blockquote { margin: 1em 0; padding-left: 1em; border-left: 4px solid ${primaryColor}; color: #666; font-style: italic; }
+                                        .markdown-content a { color: ${primaryColor}; text-decoration: underline; }
+                                    `}</style>
+                                        <Markdown
+                                            remarkPlugins={[remarkGfm]}
+                                            components={{
+                                                p: (props) => {
+                                                    const content = Array.isArray(props.children) ? props.children.join('') : String(props.children || '');
+                                                    return content.includes('Nguồn:')
+                                                        ? <p className="nguon" {...props} />
+                                                        : <p {...props} />;
+                                                }
+                                            }}
+                                        >
+                                            {msg.text}
+                                        </Markdown>
+                                    </div>
+                                </div>
+                            )}
+                            {msg.sender === 'user' && <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center"><UserCircleIcon className="h-6 w-6 text-gray-600" /></div>}
+                        </div>
+                    );
+                })}
+                {isTyping && (
+                    <div className="flex items-end gap-2 justify-start">
+                        <div
+                            className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center"
+                            style={{ backgroundColor: primaryColor }}
+                        >
+                            <SparklesIcon className="h-5 w-5 text-white" />
+                        </div>
+                        <div className="rounded-lg px-3 py-2 max-w-xs shadow-sm bg-white text-gray-800">
+                            <div className="flex items-center gap-1">
+                                <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></span>
+                                <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }}></span>
+                                <span className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }}></span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                <div ref={messagesEndRef} />
+            </div>
 
             {/* Topic Selector - Compact */}
             <div className="px-3 py-2 border-t bg-gray-50">
