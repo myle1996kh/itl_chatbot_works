@@ -10,7 +10,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:Postgres123!@host.docker.internal:32001/chatbot}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:Postgres123!@172.23.178.103:32001/chatbot}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - FERNET_KEY=${FERNET_KEY}
       - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}
