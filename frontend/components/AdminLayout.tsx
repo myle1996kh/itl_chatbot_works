@@ -36,7 +36,6 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
         { path: '/admin/knowledge', label: 'Knowledge Base', icon: DocumentTextIcon },
         { path: '/admin/users', label: 'User Management', icon: UserGroupIcon },
         { path: '/admin/tenants', label: 'Tenants', icon: BuildingOfficeIcon },
-        { path: '/admin/settings', label: 'Settings', icon: Cog6ToothIcon },
     ];
 
     const isActive = (path: string) => {

@@ -186,13 +186,6 @@ const TenantManagementPage: React.FC = () => {
                                                 <Cog6ToothIcon className="h-5 w-5" />
                                             </button>
                                             <button
-                                                onClick={() => handleOpenModal(tenant)}
-                                                className="text-indigo-600 hover:text-indigo-900 mr-4"
-                                                title="Sửa tên/domain"
-                                            >
-                                                <PencilIcon className="h-5 w-5" />
-                                            </button>
-                                            <button
                                                 onClick={() => handleDelete(tenant.tenant_id)}
                                                 className="text-red-600 hover:text-red-900"
                                                 title="Xóa tenant"

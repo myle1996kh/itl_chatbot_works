@@ -20,6 +20,67 @@ interface ChatWidgetProps {
 }
 
 const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicId, userId, sessionId: initialSessionId, onClose, onEndSession, mode = 'admin' }) => {
+  // ============================================================================
+  // DEBT RENDERING HELPERS
+  // ============================================================================
+
+  // Format currency for Vietnamese locale
+  const formatCurrency = (value: number): string => {
+    return new Intl.NumberFormat('vi-VN').format(value || 0);
+  };
+
+  // Detect if message contains debt JSON response
+  const isDebtResponse = (text: string): boolean => {
+    // Check if message has "Entity đã nhận diện" and contains JSON array or object
+    if (!text.includes('Entity đã nhận diện')) return false;
+
+    // Check if it contains JSON structure (array or object)
+    const hasJsonArray = text.includes('[') && text.includes(']');
+    const hasJsonObject = text.includes('{') && text.includes('}');
+
+    // Check for debt-specific fields in the text
+    const hasDebtFields = text.includes('customerName') ||
+      text.includes('salesmanName') ||
+      text.includes('debitAmount') ||
+      text.includes('creditLimit');
+
+    return (hasJsonArray || hasJsonObject) && hasDebtFields;
+  };
+
+  // Parse debt data from message text
+  const parseDebtData = (text: string): any => {
+    try {
+      // Strip "Entity đã nhận diện: xxx" line
+      const cleaned = text.replace(/Entity đã nhận diện:.*?\n/g, '');
+
+      // Extract JSON (handle both array and object)
+      const jsonMatch = cleaned.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+
+        // Check if it's wrapped in {"output": "..."} format
+        if (parsed.output) {
+          // The output field contains a stringified JSON, need to parse again
+          if (typeof parsed.output === 'string') {
+            // Replace Python-style single quotes with double quotes
+            const fixedJson = parsed.output.replace(/'/g, '"');
+            return JSON.parse(fixedJson);
+          }
+          return parsed.output;
+        }
+
+        return parsed;
+      }
+    } catch (e) {
+      console.error('Failed to parse debt data:', e);
+    }
+    return null;
+  };
+
+  // ============================================================================
+  // STATE & REFS
+  // ============================================================================
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -411,6 +472,111 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
   // If it happens to be a tailwind class name like 'blue-600', this won't work with style={{backgroundColor}}
   // But we updated widget.tsx to pass hex.
 
+  // ============================================================================
+  // DEBT CARD COMPONENTS
+  // ============================================================================
+
+  // Customer Debt Card Component
+  const CustomerDebtCard = ({ data }: { data: any }) => (
+    <div style={{
+      background: 'white',
+      border: '1px solid #e5e7eb',
+      borderRadius: '8px',
+      padding: '12px',
+      maxWidth: '400px',
+      fontSize: '13px'
+    }}>
+      {/* Header */}
+      <div style={{ borderBottom: `2px solid ${primaryColor}`, paddingBottom: '8px', marginBottom: '12px' }}>
+        <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>📊 Thông tin công nợ khách hàng</h4>
+      </div>
+
+      {/* Customer Info */}
+      <div style={{ marginBottom: '12px' }}>
+        <p style={{ margin: '4px 0' }}><strong>Khách hàng:</strong> {data.customerName || 'N/A'}</p>
+        <p style={{ margin: '4px 0' }}><strong>MST:</strong> {data.taxCode || data.customerTaxCode || 'N/A'}</p>
+        <p style={{ margin: '4px 0' }}><strong>Nhân viên Sales:</strong> {data.salesmanName || 'N/A'}</p>
+        <p style={{ margin: '4px 0' }}><strong>Loại hợp đồng:</strong> {data.contractType || 'N/A'}</p>
+      </div>
+
+      {/* Financial Info */}
+      <div style={{ marginBottom: '12px' }}>
+        <h5 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>💰 Thông tin tài chính</h5>
+        <table style={{ width: '100%', fontSize: '13px' }}>
+          <tbody>
+            <tr><td style={{ padding: '4px 0' }}>Hạn mức tín dụng</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.creditLimit)} VND</td></tr>
+            <tr><td style={{ padding: '4px 0' }}>Số dư nợ hiện tại</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.debitAmount)} VND</td></tr>
+            <tr><td style={{ padding: '4px 0' }}>Đã thanh toán</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.paidAmount || data.paid)} VND</td></tr>
+            <tr><td style={{ padding: '4px 0' }}>Dư nợ</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.billingUnpaid || data.outstanding)} VND</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Overdue Analysis */}
+      <div>
+        <h5 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>⚠️ Phân tích quá hạn</h5>
+        <table style={{ width: '100%', fontSize: '13px' }}>
+          <tbody>
+            <tr><td style={{ padding: '4px 0' }}>Tổng nợ quá hạn</td><td style={{ textAlign: 'right', fontWeight: 500, color: '#ef4444' }}>{formatCurrency(data.overAmount)} VND</td></tr>
+            <tr><td style={{ padding: '4px 0' }}>1-15 ngày</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.over1To15Day || data.over1to15)} VND</td></tr>
+            <tr><td style={{ padding: '4px 0' }}>16-30 ngày</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.over16To30Day || data.over16to30)} VND</td></tr>
+            <tr><td style={{ padding: '4px 0' }}>Trên 30 ngày</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(data.over30Day || data.over30)} VND</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  // Salesman Debt Card Component
+  const SalesmanDebtCard = ({ data }: { data: any[] }) => {
+    const salesmanName = data[0]?.salesmanName || 'Unknown';
+    const totalCustomers = data.length;
+    const totalDebt = data.reduce((sum, item) => sum + (item.debitAmount || 0), 0);
+
+    return (
+      <div style={{
+        background: 'white',
+        border: '1px solid #e5e7eb',
+        borderRadius: '8px',
+        padding: '12px',
+        maxWidth: '400px',
+        fontSize: '13px'
+      }}>
+        {/* Summary Header */}
+        <div style={{
+          background: '#f8f9fa',
+          padding: '10px',
+          borderRadius: '6px',
+          marginBottom: '12px'
+        }}>
+          <h4 style={{ margin: '0 0 6px 0', fontSize: '15px' }}>👤 Sales: {salesmanName}</h4>
+          <p style={{ margin: '4px 0' }}><strong>Số khách hàng:</strong> {totalCustomers}</p>
+          <p style={{ margin: '4px 0' }}>
+            <strong>Tổng công nợ:</strong>{' '}
+            <span style={{ color: totalDebt > 0 ? '#ef4444' : '#10b981', fontWeight: 600 }}>
+              {formatCurrency(totalDebt)} VND
+            </span>
+          </p>
+        </div>
+
+        {/* Customer List */}
+        {data.map((item, idx) => (
+          <div key={idx}>
+            {idx > 0 && <hr style={{ border: 'none', borderTop: '1px solid #eee', margin: '10px 0' }} />}
+            <div style={{ margin: '8px 0' }}>
+              <strong>{item.customerName} - {item.salesmanName} - {item.contractType}</strong>
+              <ul style={{ margin: '6px 0 0 18px', fontSize: '13px' }}>
+                <li>Công nợ: {formatCurrency(item.debitAmount)} VND</li>
+                <li>Hạn mức: {formatCurrency(item.creditLimit)} VND</li>
+                <li>Tỷ lệ vượt hạn mức: {(item.debitRate || 0).toFixed(2)}</li>
+              </ul>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className={`bg-white rounded-lg shadow-2xl flex flex-col font-sans transition-all duration-300 ${mode === 'widget' ? 'w-full h-full overflow-hidden' : 'w-96 h-[600px]'
       }`}>
@@ -442,33 +608,49 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
       </header>
 
       <div className="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4">
-        {messages.map((msg) => (
-          <div key={msg.id} className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-            {msg.sender !== 'user' && (
-              <div
-                className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center"
-                style={{ backgroundColor: msg.sender === 'ai' ? primaryColor : '#9CA3AF' }}
-              >
-                <SparklesIcon className="h-5 w-5 text-white" />
-              </div>
-            )}
-            <div
-              className={`rounded-lg px-3 py-2 max-w-xs shadow-sm ${msg.sender === 'user' ? 'text-white' : 'bg-white text-gray-800'}`}
-              style={msg.sender === 'user' ? { backgroundColor: primaryColor, color: 'white' } : {}}
-            >
-              {msg.sender === 'supporter' && <div className="font-bold text-xs mb-1 text-green-600">{msg.supporterName}</div>}
-              {msg.fileInfo && (
-                <div className="text-xs font-mono p-2 bg-black/10 rounded-md mb-2">
-                  Attached: {msg.fileInfo.name}
+        {messages.map((msg) => {
+          // Check if this is a debt response from AI
+          const isDebt = msg.sender === 'ai' && isDebtResponse(msg.text);
+          const debtData = isDebt ? parseDebtData(msg.text) : null;
+
+          // Determine if customer or salesman debt
+          const isCustomerDebt = debtData && !Array.isArray(debtData);
+          const isSalesmanDebt = debtData && Array.isArray(debtData);
+
+          return (
+            <div key={msg.id} className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+              {msg.sender !== 'user' && (
+                <div
+                  className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: msg.sender === 'ai' ? primaryColor : '#9CA3AF' }}
+                >
+                  <SparklesIcon className="h-5 w-5 text-white" />
                 </div>
               )}
-              <div
-                className="prose prose-sm max-w-none markdown-content"
-                style={{
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
-                <style>{`
+
+              {/* Render custom debt card if detected, otherwise normal message */}
+              {isCustomerDebt ? (
+                <CustomerDebtCard data={debtData} />
+              ) : isSalesmanDebt ? (
+                <SalesmanDebtCard data={debtData} />
+              ) : (
+                <div
+                  className={`rounded-lg px-3 py-2 max-w-xs shadow-sm ${msg.sender === 'user' ? 'text-white' : 'bg-white text-gray-800'}`}
+                  style={msg.sender === 'user' ? { backgroundColor: primaryColor, color: 'white' } : {}}
+                >
+                  {msg.sender === 'supporter' && <div className="font-bold text-xs mb-1 text-green-600">{msg.supporterName}</div>}
+                  {msg.fileInfo && (
+                    <div className="text-xs font-mono p-2 bg-black/10 rounded-md mb-2">
+                      Attached: {msg.fileInfo.name}
+                    </div>
+                  )}
+                  <div
+                    className="prose prose-sm max-w-none markdown-content"
+                    style={{
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    <style>{`
                     .markdown-content p { margin: 0.3em 0; }
                     .markdown-content p.nguon { font-style: italic; }
                     .markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { margin: 0.2em 0; font-weight: bold; }
@@ -484,24 +666,26 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
                     .markdown-content blockquote { margin: 1em 0; padding-left: 1em; border-left: 4px solid ${primaryColor}; color: #666; font-style: italic; }
                     .markdown-content a { color: ${primaryColor}; text-decoration: underline; }
                 `}</style>
-                <Markdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    p: (props) => {
-                        const content = Array.isArray(props.children) ? props.children.join('') : String(props.children || '');
-                        return content.includes('Nguồn:')
-                          ? <p className="nguon" {...props} />
-                          : <p {...props} />;
-                    }
-                  }}
-                >
-                  {msg.text}
-                </Markdown>
-              </div>
+                    <Markdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: (props) => {
+                          const content = Array.isArray(props.children) ? props.children.join('') : String(props.children || '');
+                          return content.includes('Nguồn:')
+                            ? <p className="nguon" {...props} />
+                            : <p {...props} />;
+                        }
+                      }}
+                    >
+                      {msg.text}
+                    </Markdown>
+                  </div>
+                </div>
+              )}
+              {msg.sender === 'user' && <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center"><UserCircleIcon className="h-6 w-6 text-gray-600" /></div>}
             </div>
-            {msg.sender === 'user' && <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center"><UserCircleIcon className="h-6 w-6 text-gray-600" /></div>}
-          </div>
-        ))}
+          );
+        })}
         {isTyping && (
           <div className="flex items-end gap-2 justify-start">
             <div
@@ -559,40 +743,42 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ tenant, userInfo, initialTopicI
       </div>
 
       {/* Escalation Dialog Modal */}
-      {showEscalationDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 rounded-lg">
-          <div className="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold mb-4 text-gray-800">Yêu cầu hỗ trợ từ nhân viên</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Vì sao bạn cần hỗ trợ từ nhân viên? Vui lòng mô tả vấn đề hoặc lý do yêu cầu hỗ trợ.
-            </p>
-            <textarea
-              value={escalationReason}
-              onChange={(e) => setEscalationReason(e.target.value)}
-              placeholder="Mô tả vấn đề hoặc lý do cần hỗ trợ..."
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 mb-4 resize-none"
-              rows={4}
-            />
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => {
-                  setShowEscalationDialog(false);
-                  setEscalationReason('');
-                }}
-                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleEscalationSubmit}
-                className="px-4 py-2 text-white bg-orange-500 hover:bg-orange-600 rounded-lg font-medium"
-              >
-                Gửi yêu cầu
-              </button>
+      {
+        showEscalationDialog && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 rounded-lg">
+            <div className="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full mx-4">
+              <h3 className="text-lg font-bold mb-4 text-gray-800">Yêu cầu hỗ trợ từ nhân viên</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Vì sao bạn cần hỗ trợ từ nhân viên? Vui lòng mô tả vấn đề hoặc lý do yêu cầu hỗ trợ.
+              </p>
+              <textarea
+                value={escalationReason}
+                onChange={(e) => setEscalationReason(e.target.value)}
+                placeholder="Mô tả vấn đề hoặc lý do cần hỗ trợ..."
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 mb-4 resize-none"
+                rows={4}
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => {
+                    setShowEscalationDialog(false);
+                    setEscalationReason('');
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={handleEscalationSubmit}
+                  className="px-4 py-2 text-white bg-orange-500 hover:bg-orange-600 rounded-lg font-medium"
+                >
+                  Gửi yêu cầu
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
     </div>
   );
 };
