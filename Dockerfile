@@ -53,8 +53,8 @@ COPY pyproject.toml uv.lock ./
 # Install dependencies using UV
 # --frozen: Use exact versions from uv.lock (reproducible builds)
 # --no-dev: Skip development dependencies (pytest, black, etc.)
-# --system: Install to system Python instead of virtual environment
-RUN uv sync --frozen --no-dev --system
+# Note: uv 0.5.0+ automatically installs to system Python when no venv is present
+RUN UV_SYSTEM_PYTHON=1 uv sync --frozen --no-dev
 
 # ============================================================================
 # Stage 3: Runtime - Combine frontend and backend
@@ -64,7 +64,8 @@ FROM python:3.11-slim
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    UV_NO_UPDATE_CHECK=1
+    UV_NO_UPDATE_CHECK=1 \
+    UV_SYSTEM_PYTHON=1
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
